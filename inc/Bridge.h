@@ -159,6 +159,62 @@ private:
     QVector<LocalPending> m_items;
 };
 
+// ── 回收站项模型 ──────────────────────────────────────────────────
+// 删除的另一面: 已删除但可恢复的项, 带原始路径。
+class TrashModel : public QAbstractListModel
+{
+    Q_OBJECT
+    Q_PROPERTY(int count READ rowCount NOTIFY countChanged)
+
+public:
+    enum Roles {
+        NameRole = Qt::UserRole + 1,
+        RestorePathRole,
+    };
+
+    explicit TrashModel(QObject *parent = nullptr)
+        : QAbstractListModel(parent) {}
+
+    void setItems(const QVector<TrashItem> &v)
+    {
+        beginResetModel();
+        m_items = v;
+        endResetModel();
+        emit countChanged();
+    }
+
+    int rowCount(const QModelIndex &parent = {}) const override
+    {
+        return parent.isValid() ? 0 : m_items.size();
+    }
+
+    QVariant data(const QModelIndex &idx, int role) const override
+    {
+        if (!idx.isValid() || idx.row() < 0 || idx.row() >= m_items.size())
+            return {};
+        const TrashItem &t = m_items.at(idx.row());
+        switch (role) {
+        case NameRole:        return t.name;
+        case RestorePathRole: return t.restorePath;
+        }
+        return {};
+    }
+
+    QHash<int, QByteArray> roleNames() const override
+    {
+        return {
+            { NameRole,        "name" },
+            { RestorePathRole, "restorePath" },
+        };
+    }
+
+signals:
+    void countChanged();
+
+private:
+    QVector<TrashItem> m_items;
+};
+
 // ── 主桥接对象 ────────────────────────────────────────────────────
 class Bridge : public QObject
 {
@@ -187,6 +243,15 @@ class Bridge : public QObject
     Q_PROPERTY(QString dlSize   READ dlSize   NOTIFY snapshotChanged)
     Q_PROPERTY(int     dlPending READ dlPending NOTIFY snapshotChanged)
     Q_PROPERTY(bool    dlBusy   READ dlBusy   NOTIFY snapshotChanged)
+
+    // ── 删除 ──
+    // 待删除 = item_recursive_properties.needs_delete_doc_count
+    // 已完成 = 回收站项数(local_items.item_restore_path 非空)
+    // 表里没有 deleted_count, 所以"完成"侧用回收站项数对应, 两者都是真实数据。
+    Q_PROPERTY(int     delDone  READ delDone  NOTIFY snapshotChanged)
+    Q_PROPERTY(int     delTotal READ delTotal NOTIFY snapshotChanged)
+    Q_PROPERTY(int     delCount READ delCount NOTIFY snapshotChanged)
+    Q_PROPERTY(bool    delBusy  READ delBusy  NOTIFY snapshotChanged)
 
     // ── 错误 ──
     Q_PROPERTY(int     faults    READ faults    NOTIFY snapshotChanged)
@@ -227,6 +292,8 @@ class Bridge : public QObject
                READ pendingItems CONSTANT)
     Q_PROPERTY(icloud::LocalPendingModel *localPendings
                READ localPendings CONSTANT)
+    Q_PROPERTY(icloud::TrashModel *trashItems
+               READ trashItems CONSTANT)
 
 public:
     explicit Bridge(QObject *parent = nullptr);
@@ -291,6 +358,11 @@ public:
     int     dlPending() const { return m_snap.queue.pendingFetches; }
     bool    dlBusy() const;
 
+    int     delDone() const  { return m_snap.trashCount; }
+    int     delCount() const { return m_snap.queue.needDelCount; }
+    int     delTotal() const { return m_snap.trashCount + m_snap.queue.needDelCount; }
+    bool    delBusy() const  { return m_snap.queue.needDelCount > 0; }
+
     int     faults() const { return m_snap.faults; }
     int     overQuota() const { return m_snap.overQuota; }
     QString lastError() const;
@@ -317,6 +389,7 @@ public:
 
     PendingModel       *pendingItems() { return &m_pendingModel; }
     LocalPendingModel  *localPendings() { return &m_localModel; }
+    TrashModel         *trashItems() { return &m_trashModel; }
 
     void setRefreshSec(int s);
     void setStallSec(int s);
@@ -359,6 +432,7 @@ private:
     Snapshot m_snap;
     PendingModel      m_pendingModel;
     LocalPendingModel m_localModel;
+    TrashModel        m_trashModel;
 
     QTimer *m_procTimer = nullptr;
     bool    m_icloudRunning = false;

@@ -42,6 +42,8 @@ QString Snapshot::stateName() const
         return QStringLiteral("下载中");
     if (q.dlUnstaged > 0)
         return QStringLiteral("暂存中");
+    if (q.needDelCount > 0)
+        return QStringLiteral("删除中");
     if (!localPendings.isEmpty())
         return QStringLiteral("上传处理中");
     if (!activeZones.isEmpty())
@@ -74,6 +76,8 @@ QString Snapshot::stateDetail() const
             .arg(q.needDlCount).arg(human(q.needDlBytes));
     if (q.dlUnstaged > 0)
         return QStringLiteral("%1 个下载暂存").arg(q.dlUnstaged);
+    if (q.needDelCount > 0)
+        return QStringLiteral("%1 个待删除").arg(q.needDelCount);
     if (!localPendings.isEmpty())
         return QStringLiteral("%1 个本地项有未提交变更").arg(localPendings.size());
     if (!activeZones.isEmpty())
@@ -86,8 +90,9 @@ bool Snapshot::isBusy() const
     if (!dbOk)
         return false;
     const QueueStat &q = queue;
+    // 待删除也算忙 —— 否则删除卡住时不会被判为卡死。
     return q.needUpCount || q.needDlCount || q.pendingFetches
-        || q.dlUnstaged || !localPendings.isEmpty();
+        || q.dlUnstaged || q.needDelCount || !localPendings.isEmpty();
 }
 
 // ======================================================================
@@ -340,7 +345,8 @@ bool IcloudMonitor::readSnapshot(Snapshot &out, const QString &dbPath,
                 "       COALESCE(SUM(needs_dl_unstage_count),0),"
                 "       COALESCE(SUM(faults_count),0),"
                 "       COALESCE(SUM(over_quota_count),0),"
-                "       COALESCE(SUM(needs_sync_up_count),0) "
+                "       COALESCE(SUM(needs_sync_up_count),0),"
+                "       COALESCE(SUM(needs_delete_doc_count),0) "
                 "FROM item_recursive_properties"), q)) {
             if (q.next()) {
                 QueueStat &s = out.queue;
@@ -358,6 +364,7 @@ bool IcloudMonitor::readSnapshot(Snapshot &out, const QString &dbPath,
                 out.faults      = q.value(11).toInt();
                 out.overQuota   = q.value(12).toInt();
                 s.needSyncUp    = q.value(13).toInt();
+                s.needDelCount  = q.value(14).toInt();
             }
         } else {
             err = QStringLiteral("读 item_recursive_properties 失败: %1")
@@ -451,6 +458,34 @@ bool IcloudMonitor::readSnapshot(Snapshot &out, const QString &dbPath,
                 p.absPath     = q.value(6).toString();
                 out.localPendings.append(p);
             }
+        }
+    }
+
+    // 7.5) 回收站 (删除的另一面)
+    // item_restore_path 非空 = 该本地项已被删除、躺在 iCloud 回收站里,
+    // 且记录了原始路径(可恢复)。这是"删除队列"唯一能拿到的"已完成"侧数据 ——
+    // item_recursive_properties 里只有 needs_delete_doc_count(待删除),
+    // 没有 deleted_count 这种已完成计数器。
+    {
+        QSqlQuery q(db);
+        if (exec(QStringLiteral(
+                "SELECT item_filename, COALESCE(item_restore_path,'') "
+                "FROM local_items "
+                "WHERE COALESCE(item_restore_path,'')<>'' "
+                "ORDER BY item_filename LIMIT 30"), q)) {
+            while (q.next()) {
+                TrashItem t;
+                t.name        = q.value(0).toString();
+                t.restorePath = q.value(1).toString();
+                out.trashItems.append(t);
+            }
+        }
+        QSqlQuery qc(db);
+        if (exec(QStringLiteral(
+                "SELECT COUNT(*) FROM local_items "
+                "WHERE COALESCE(item_restore_path,'')<>''"), qc)
+            && qc.next()) {
+            out.trashCount = qc.value(0).toInt();
         }
     }
 
@@ -744,20 +779,27 @@ void IcloudMonitor::doSample()
         const QString now = s.stateName();
         if (now != m_lastStateName) {
             log::syncChanged(m_lastStateName, now,
-                             QStringLiteral("队列 up=%1/%2 dl=%3/%4 取回=%5 故障=%6")
+                             QStringLiteral("队列 up=%1/%2 dl=%3/%4 删=%5/%6 "
+                                            "取回=%7 故障=%8")
                                  .arg(s.queue.syncedUpCount)
                                  .arg(s.queue.needUpCount)
                                  .arg(s.queue.downloadedCount)
                                  .arg(s.queue.needDlCount)
+                                 // 删=待删除/回收站(后者是"已完成"侧)
+                                 .arg(s.queue.needDelCount)
+                                 .arg(s.trashCount)
                                  .arg(s.queue.pendingFetches)
                                  .arg(s.faults));
             m_lastStateName = now;
         } else if (changed) {
-            log::info(QStringLiteral("[SYNC] 队列变化 up=%1/%2 dl=%3/%4 待处理=%5")
+            log::info(QStringLiteral("[SYNC] 队列变化 up=%1/%2 dl=%3/%4 "
+                                     "删=%5/%6 取回=%7")
                           .arg(s.queue.syncedUpCount)
                           .arg(s.queue.needUpCount)
                           .arg(s.queue.downloadedCount)
                           .arg(s.queue.needDlCount)
+                          .arg(s.queue.needDelCount)
+                          .arg(s.trashCount)
                           .arg(s.queue.pendingFetches));
         }
 

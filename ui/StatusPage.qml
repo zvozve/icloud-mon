@@ -201,6 +201,95 @@ Item {
                     }
                 }
             }
+
+            // ── 回收站 (删除队列的另一面) ──
+            // local_items.item_restore_path 非空的项 = 已删除但可恢复,
+            // 且记录了原始路径。这是删除维度上唯一有明细可看的真实数据。
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 240
+                color: Theme.bgPanel
+                radius: Theme.radius
+                border.color: Theme.border
+                border.width: 1
+
+                ColumnLayout {
+                    anchors.fill: parent
+                    anchors.margins: Theme.sp
+                    spacing: 6
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Label {
+                            text: "回收站"
+                            color: Theme.textHi
+                            font.pixelSize: Theme.fsBody
+                            font.bold: true
+                        }
+                        Item { Layout.fillWidth: true }
+                        Label {
+                            text: Bridge.trashItems.count + " 项（可恢复）"
+                            color: Theme.textLo
+                            font.pixelSize: Theme.fsTiny
+                        }
+                    }
+
+                    ListView {
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        clip: true
+                        model: Bridge.trashItems
+                        spacing: 2
+                        ScrollBar.vertical: ScrollBar {}
+
+                        delegate: Rectangle {
+                            required property string name
+                            required property string restorePath
+                            required property int index
+                            width: ListView.view.width
+                            height: 28
+                            color: index % 2 === 0 ? "transparent" : Theme.bgCard
+
+                            RowLayout {
+                                anchors.fill: parent
+                                anchors.leftMargin: 6
+                                anchors.rightMargin: 6
+                                spacing: 6
+
+                                Label {
+                                    text: name
+                                    color: Theme.textMid
+                                    font.pixelSize: Theme.fsSmall
+                                    elide: Text.ElideMiddle
+                                    Layout.fillWidth: true
+                                }
+                                Label {
+                                    // 原始路径: 说明这项原来在哪, 便于判断要不要恢复
+                                    text: "原位于 " + restorePath
+                                    color: Theme.textLo
+                                    font.pixelSize: Theme.fsTiny
+                                    elide: Text.ElideLeft
+                                    Layout.preferredWidth: 240
+                                }
+                            }
+
+                            ToolTip.visible: trashHover.hovered
+                            ToolTip.text: "原名: " + name + "\n原路径: " + restorePath
+                            ToolTip.delay: 500
+                            HoverHandler { id: trashHover }
+                        }
+                    }
+
+                    Label {
+                        Layout.alignment: Qt.AlignHCenter
+                        Layout.topMargin: 12
+                        text: Bridge.trashItems.count === 0 ? "回收站为空" : ""
+                        visible: text !== ""
+                        color: Theme.textLo
+                        font.pixelSize: Theme.fsSmall
+                    }
+                }
+            }
         }
     }
 }

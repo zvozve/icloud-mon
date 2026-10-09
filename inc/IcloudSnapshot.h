@@ -34,6 +34,9 @@ struct QueueStat
     int     downloadedCount = 0; // 已完成下载
     qint64  downloadedBytes = 0;
     int     needSyncUp    = 0;
+    // 待删除。字段名是 needs_delete_doc_count(实测确认, 与上传/下载三个
+    // 计数器同在 item_recursive_properties 表里, 所以三者天然对称)。
+    int     needDelCount  = 0;
 
     bool uploadIdle() const { return needUpCount == 0; }
     bool downloadIdle() const { return needDlCount == 0 && pendingFetches == 0; }
@@ -65,6 +68,16 @@ struct LocalPending
     int     syncUpState = 0;
     bool    inFlight   = false;
     bool    hasDiff    = false;
+};
+
+// ── 回收站里的项 (local_items.item_restore_path 非空) ─────────────
+// 这构成了"删除"的另一面: 已删除但可恢复的项。
+// item_recursive_properties 里**没有** deleted_count 这种"已完成删除"计数器,
+// 所以删除队列的"完成"侧用回收站项数来对应, 这是有真实数据支撑的。
+struct TrashItem
+{
+    QString name;         // 当前名字
+    QString restorePath;  // 原始路径, 可据此恢复
 };
 
 // ── Zone 状态 ──────────────────────────────────────────────────────
@@ -99,6 +112,8 @@ struct Snapshot
     // 十几个假的"待处理项"。
     int                    cloudOnlyCount = 0;
     QVector<LocalPending> localPendings;
+    QVector<TrashItem>    trashItems;      // 回收站明细
+    int                    trashCount = 0; // 回收站项数
     QVector<ZoneInfo>     activeZones;
     int                    zoneTotal = 0;
 

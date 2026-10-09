@@ -44,6 +44,7 @@ QtObject {
         case "双向传输":        return "#a371f7"
         case "暂存中":          return warn
         case "上传处理中":      return warn
+        case "删除中":          return err
         case "未知":            return err
         default:                return idle
         }

@@ -246,6 +246,7 @@ void Bridge::onSnapshot(const icloud::Snapshot &s)
     m_snap = s;
     m_pendingModel.setItems(s.pendingItems);
     m_localModel.setItems(s.localPendings);
+    m_trashModel.setItems(s.trashItems);
     emit snapshotChanged();
 }
 
@@ -254,6 +255,7 @@ void Bridge::onStateChanged(const icloud::Snapshot &s)
     m_snap = s;
     m_pendingModel.setItems(s.pendingItems);
     m_localModel.setItems(s.localPendings);
+    m_trashModel.setItems(s.trashItems);
     emit snapshotChanged();
 }
 

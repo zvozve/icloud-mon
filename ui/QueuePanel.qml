@@ -18,6 +18,9 @@ Rectangle {
     property string extraText: ""
     property bool busy: false
     property string icon: ""
+    // "待处理"这一栏的标题可换。删除队列要显示"待删除" ——
+    // 叫"待处理"会让人看不出是删除。
+    property string countLabel: "待处理"
 
     // 进度比例, total 为 0 时视为 100% (无任务即完成)
     readonly property real ratio: total > 0
@@ -102,7 +105,7 @@ Rectangle {
             ColumnLayout {
                 spacing: 1
                 Label {
-                    text: "待处理"
+                    text: root.countLabel
                     color: Theme.textLo
                     font.pixelSize: Theme.fsTiny
                 }
@@ -114,8 +117,12 @@ Rectangle {
                 }
             }
 
+            // 删除没有"字节数"的概念(item_recursive_properties 里也没有
+            // needs_delete_size), pendingSize 传空串时整栏隐藏,
+            // 而不是留一个空白占位。
             ColumnLayout {
                 spacing: 1
+                visible: root.pendingSize !== ""
                 Label {
                     text: "待传输"
                     color: Theme.textLo

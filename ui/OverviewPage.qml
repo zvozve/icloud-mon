@@ -4,7 +4,8 @@
 //  回答一个问题: 现在到底是什么状态?
 //    - 异常横幅（有异常才出现）
 //    - 状态卡: 大状态 + 游标 + 进程
-//    - 上传 / 下载 队列
+//    - 上传 / 下载 / 删除 三个队列
+//      (三者是 item_recursive_properties 里天然对称的三个计数器)
 //  「具体哪些文件在等」放到 状态页。
 // ======================================================================
 import QtQuick 2.15
@@ -69,6 +70,26 @@ Item {
                             ? ("取回队列 " + Bridge.dlPending + " 条") : ""
                 busy: Bridge.dlBusy
                 icon: "↓"
+            }
+
+            // ── 删除队列 ──
+            // 待删除 = needs_delete_doc_count; "已完成"侧用回收站项数对应
+            // (表里没有 deleted_count 计数器, 回收站项数是有真实数据的那一侧)。
+            // 删除没有字节数概念, pendingSize 传空串 -> 那一栏自动隐藏。
+            QueuePanel {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                title: "删除"
+                accent: Theme.err
+                done: Bridge.delDone
+                total: Bridge.delTotal
+                pendingCount: Bridge.delCount
+                pendingSize: ""
+                countLabel: "待删除"
+                extraText: Bridge.delDone > 0
+                            ? ("回收站 " + Bridge.delDone + " 项") : ""
+                busy: Bridge.delBusy
+                icon: "⌫"
             }
         }
     }
