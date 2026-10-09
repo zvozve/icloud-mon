@@ -1,8 +1,14 @@
+// windows.h 要放在 Qt 头文件之前, 避免顺序引起的宏冲突。
+// 项目全局已定义 WIN32_LEAN_AND_MEAN 与 NOMINMAX。
+#include <windows.h>
+#include <tlhelp32.h>
+
 #include "IcloudService.h"
 
 #include <QDir>
 #include <QEventLoop>
 #include <QFile>
+#include <QHash>
 #include <QProcess>
 #include <QStandardPaths>
 #include <QTimer>
@@ -23,23 +29,41 @@ bool IcloudService::isRunning() const
 
 QStringList IcloudService::runningProcesses() const
 {
+    // 用 Toolhelp32 快照一次性枚举全部进程, 不派生任何子进程。
+    //
+    // ★ 别改回逐个 tasklist。原来的写法是对 4 个进程名各起一次
+    //   `tasklist /FI ...` 并 waitForFinished(4000) **阻塞等待** ——
+    //   每 3 秒就在 GUI 线程上产生 4 次进程创建 + 4 次阻塞等待,
+    //   每次进程创建加枚举约 50~100ms, 合计 200~400ms 的主线程停顿。
+    //   这就是拖动窗口明显卡顿的主要来源(且每 3 秒必发生一次)。
+    //   现在只读一次内核快照, 耗时 1ms 量级。
     QStringList found;
-    // tasklist /FI "IMAGENAME eq xxx.exe" /FO CSV /NH
-    const auto probe = [](const QString &name) -> bool {
-        QProcess p;
-        p.start(QStringLiteral("tasklist"),
-                { QStringLiteral("/FI"), QStringLiteral("IMAGENAME eq %1").arg(name),
-                  QStringLiteral("/FO"), QStringLiteral("CSV"),
-                  QStringLiteral("/NH") });
-        if (!p.waitForFinished(4000))
-            return false;
-        return p.readAllStandardOutput().contains(name.toUtf8());
-    };
 
-    for (const QString &n : paths::icloudProcessNames()) {
-        if (probe(n))
-            found << n;
+    QHash<QString, QString> want;   // 小写名 -> 原始名
+    for (const QString &n : paths::icloudProcessNames())
+        want.insert(n.toLower(), n);
+
+    HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (snap == INVALID_HANDLE_VALUE)
+        return found;
+
+    PROCESSENTRY32W pe;
+    ZeroMemory(&pe, sizeof(pe));
+    pe.dwSize = sizeof(pe);
+
+    if (Process32FirstW(snap, &pe)) {
+        do {
+            const QString name =
+                QString::fromWCharArray(pe.szExeFile).toLower();
+            const auto it = want.constFind(name);
+            if (it != want.constEnd()) {
+                // 同一进程名可能有多个实例, 按名字去重
+                if (!found.contains(it.value()))
+                    found << it.value();
+            }
+        } while (Process32NextW(snap, &pe));
     }
+    CloseHandle(snap);
     return found;
 }
 
@@ -98,30 +122,33 @@ void IcloudService::stopAll()
 void IcloudService::startAll()
 {
     // Store 应用不能用 CreateProcess 直接拉起, 必须走 explorer 的
-    // shell:AppsFolder<AUMID> 形式。
-    emit progress(QStringLiteral("正在启动 iCloud..."));
-
+    // shell:AppsFolder\<AUMID> 形式。
     const QString aumid = paths::icloudAumid();
+    emit progress(QStringLiteral("正在启动 iCloud (%1)...").arg(aumid));
+
     QProcess p;
     p.start(QStringLiteral("explorer.exe"),
             { QStringLiteral("shell:AppsFolder/%1").arg(aumid) });
     const bool started = p.waitForStarted(5000);
+    // explorer 交接完就退出, 这里等它落地, 否则 QProcess 析构会警告
+    p.waitForFinished(3000);
 
     if (!started) {
-        // 回退: 尝试从开始菜单的 iCloud 快捷方式启动
+        // 回退: 从开始菜单的 iCloud 快捷方式启动。
+        // 用 explorer 打开 .lnk 而不是 `cmd /c start` —— 后者依赖 cmd,
+        // 且在中文系统上容易因编码问题起不来。
         const QString appData =
             QStandardPaths::writableLocation(QStandardPaths::ApplicationsLocation);
         const QString lnk = appData + QStringLiteral("\\iCloud.lnk");
         if (QFile::exists(lnk)) {
             QProcess p2;
-            p2.start(QStringLiteral("cmd"),
-                     { QStringLiteral("/c"), QStringLiteral("start"), QString(),
-                       QStringLiteral("\"%1\"").arg(lnk) });
+            p2.start(QStringLiteral("explorer.exe"), { lnk });
             p2.waitForStarted(4000);
+            p2.waitForFinished(3000);
             emitFinished(true, QStringLiteral("已通过快捷方式启动 iCloud"));
         } else {
             emitFinished(false,
-                QStringLiteral("启动失败: 未找到 AUMID %1, 也没有 iCloud.lnk")
+                QStringLiteral("启动失败: AUMID %1 未生效, 也没有 iCloud.lnk")
                     .arg(aumid));
         }
         return;

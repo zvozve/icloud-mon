@@ -111,6 +111,11 @@ void Bridge::onProcTimer()
     const bool now = !m_procList.isEmpty();
     if (now != m_icloudRunning) {
         m_icloudRunning = now;
+        // 进程识别结果记一条: 既是运行记录, 也是"进程探测是否正常"的证据
+        log::info(QStringLiteral("[RUN] iCloud 进程: %1")
+                      .arg(m_procList.isEmpty()
+                               ? QStringLiteral("无")
+                               : m_procList.join(QLatin1Char(','))));
         emit icloudStateChanged();
     }
 }

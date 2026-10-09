@@ -119,11 +119,24 @@ inline QStringList icloudProcessNames()
     };
 }
 
-// Store 应用的 AUMID, 用于 explorer.exe 重新拉起
+// Store 应用的 AUMID, 用于 explorer.exe 重新拉起。
+//
+// 格式: <PackageFamilyName>!<Application Id>
+//   PackageFamilyName = AppleInc.iCloud_nzyj5cx40ttqa
+//                       (Name + "_" + PublisherId, 见包安装目录名)
+//   Application Id    = iCloud
+//                       (取自 AppxManifest.xml 的 <Application Id="iCloud">)
+//
+// ★ 这里以前写的是 "Microsoft.Store_8wekyb3d8bbwe!App" —— 那是**微软商店**
+// 的 AUMID, 不是 iCloud 的。后果是"重启 iCloud"只能杀掉、拉不起来:
+// explorer 去开商店, iCloud 一直不启动。
+// 核实方式(别猜): 看包安装目录 AppxManifest.xml 里的 Application Id
+//   ls "/c/Program Files/WindowsApps/AppleInc.iCloud"*/
+//   grep -oE '<Application Id="[^"]+"' <包目录>/AppxManifest.xml
 inline QString icloudAumid()
 {
     return QStringLiteral(
-        "Microsoft.Store_8wekyb3d8bbwe!App");
+        "AppleInc.iCloud_nzyj5cx40ttqa!iCloud");
 }
 
 // 自启动注册表键 (用户级, 免管理员)

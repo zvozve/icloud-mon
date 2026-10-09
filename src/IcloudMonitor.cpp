@@ -668,11 +668,25 @@ void IcloudMonitor::doSample()
     Snapshot s;
     s.dbOk = staged && readSnapshot(s, dbPath, err);
     s.dbError = err;
-    s.elapsedMs = int(timer.elapsed());
+    s.elapsedMs = int(timer.elapsed());   // 含"复制三件套 + 读库"
 
     // 历史条数目前只用于落盘裁剪(appendHistory 内部自己做), 无需外传
+    const qint64 tRead  = timer.elapsed();
     appendHistory(s);
+    const qint64 tHist  = timer.elapsed();
     const StallInfo st = detectStall();
+    const qint64 tTotal = timer.elapsed();
+
+    // 采样全程跑在 GUI 线程上, 超过阈值就表现为界面/拖动卡顿。
+    // 只在超阈值时记, 平时不刷屏; 分项便于定位是哪一段慢。
+    if (tTotal > 100) {
+        log::warn(QStringLiteral(
+                      "[PERF] 采样偏慢 %1ms (复制+读库=%2 历史=%3 停滞检测=%4)")
+                      .arg(tTotal)
+                      .arg(tRead)
+                      .arg(tHist - tRead)
+                      .arg(tTotal - tHist));
+    }
 
     // 异常判定
     QStringList anomalies;

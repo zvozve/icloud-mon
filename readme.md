@@ -169,6 +169,7 @@ build\Release\log\icloudmon_2026-10-09
 | `[SYNC]` | iCloud 同步变化 | 状态名变化（如 `空闲 → 上传中`）、队列计数变化 |
 | `[ACTION]` | 操作记录 | 重启 iCloud、开关自启动、改阈值、打开日志目录等，全部带结果 |
 | `[ANOMALY]` | 异常 | 卡死告警、恢复；数据库可读性翻转 |
+| `[PERF]` | 自身性能 | 采样耗时超过 100ms 时记一条，含「复制+读库 / 历史 / 停滞检测」分项 |
 | `[SQL]` | SQL 失败 | 语句与错误原文 |
 | `[QT]` | Qt 内部消息 | Qt 自己的告警 / 错误，转发进来便于事后定位 |
 
@@ -310,6 +311,74 @@ Qt 某些警告会高频重复。实测本机在剪贴板被其他进程占用�
 原来 `flush_on(warn)`，info 级记录全留在缓冲区，进程被强杀
 （任务管理器结束 / SIGTERM / 崩溃）时全部丢失 —— 而这恰恰是最需要
 看日志的时候。已改为 `flush_on(info)`，本应用日志量很小，代价可忽略。
+
+---
+
+### 拉起 Store 版 iCloud 必须用正确的 AUMID
+
+`explorer.exe shell:AppsFolder/<AUMID>` 是拉起 Store 应用的唯一方式。
+
+代码里原来写的是 `Microsoft.Store_8wekyb3d8bbwe!App` ——
+那是**微软商店**的 AUMID，不是 iCloud 的。后果就是「重启 iCloud」
+只能杀掉、拉不起来：explorer 去开商店，iCloud 一直不启动。
+
+正确值从包安装目录的清单里取，**不要猜**：
+
+```bash
+ls -d "/c/Program Files/WindowsApps/AppleInc.iCloud"*/
+grep -oE '<Application Id="[^"]+"' <包目录>/AppxManifest.xml
+```
+
+| 项 | 值 | 来源 |
+|---|---|---|
+| PackageFamilyName | `AppleInc.iCloud_nzyj5cx40ttqa` | 包目录名 = Name_版本_架构__PublisherId |
+| Application Id | `iCloud` | AppxManifest 的 `<Application Id=...>` |
+| AUMID | `AppleInc.iCloud_nzyj5cx40ttqa!iCloud` | `<PackageFamilyName>!<Application Id>` |
+
+回退路径也从 `cmd /c start` 改成 `explorer.exe <lnk>` ——
+少依赖 cmd，也避开中文系统上的编码问题。
+
+### 进程探测不能用 tasklist
+
+原来 `runningProcesses()` 是对 4 个进程名各起一次 `tasklist /FI ...`
+并 `waitForFinished(4000)` **阻塞等待** —— 每 3 秒就在 GUI 线程上产生
+4 次进程创建 + 4 次阻塞等待，合计 200～400ms 的主线程停顿。
+这就是「拖动窗口卡顿」在量级上的主因，而且每 3 秒必发生一次。
+
+现在改用 Win32 `CreateToolhelp32Snapshot` 一次读内核快照，不派生任何子进程，
+耗时 1ms 量级：
+
+```cpp
+HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+PROCESSENTRY32W pe; pe.dwSize = sizeof(pe);
+if (Process32FirstW(snap, &pe)) { do { ... } while (Process32NextW(snap, &pe)); }
+CloseHandle(snap);
+```
+
+进程名比较统一转小写（iCloud 各进程名大小写不完全一致），并按名字去重。
+
+进程清单本身无需猜：用上面的 AUMID 拉起 iCloud 后 `tasklist` 一看即可，
+实测与代码里配置的 4 个名字完全一致
+（`iCloudDrive.exe` / `iCloudHome.exe` / `iCloudCKKS.exe` / `ApplePhotoStreams.exe`）。
+
+### 无限循环动画 = 持续满帧重绘
+
+`StatusCard` 的边框呼吸动画是 `loops: Animation.Infinite` +
+`running: Bridge.anomalous`。而卡死是**持续状态**（本机实测停滞超 900 秒），
+`anomalous` 长期为 true → 整个窗口无休止按 60fps 重绘 → 拖动必然卡。
+已删除，边框改为静态变红。信息量不丢：异常已有顶部红色横幅表达。
+
+### 告警会重复上报，UI 必须做去重
+
+卡死这类异常是**每采样一次上报一次**（每 5 秒），不是只在出现时上报一次。
+所以 `Bridge::onAnomaly` 里「是否新异常」的标志必须在赋值前先取；
+弹窗也只在新异常 / 换种类时给，否则持续卡死状态下 Toast 动画会被每 5 秒重启。
+
+### 测自己的卡顿：采样分项计时
+
+采样全程跑在 GUI 线程上，超过 100ms 就会表现为界面 / 拖动卡顿。
+`doSample()` 里记一条 `[PERF]`，含「复制+读库 / 历史 / 停滞检测」分项，
+只在超阈值时写，避免平时刷屏。有它才能定位是哪一段慢，而不是靠感觉。
 
 ---
 
