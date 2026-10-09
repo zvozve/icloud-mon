@@ -1,115 +1,48 @@
 // ======================================================================
-//  SettingsPage.qml  -  设置页 (覆盖层)
+//  SettingsPage.qml  -  设置页（独立页面，不再是滑出面板）
 //
-//  包含:
-//    - 开机自启动开关 (注册表 HKCU\...\Run, 免管理员)
-//    - 刷新间隔
-//    - 卡死判定阈值
-//    - 历史基线管理
-//    - 路径信息 (只读展示, 便于排查)
+//  改造自原来的覆盖层版本, 去掉了:
+//    - 半透明遮罩 + MouseArea 点击关闭
+//    - 滑入/滑出动画与面板圆角、关闭按钮
+//  因为现在由左侧导航切页, 不再需要"弹出再收起"这层交互。
+//
+//  内容是竖长的一列, 所以包在 Flickable 里; 并限宽居中
+//  (UWP 设置页就是这个做法, 一行拉太长不好读)。
 // ======================================================================
 import QtQuick 2.15
 import QtQuick.Controls 2.15
 import QtQuick.Dialogs 1.3
 import QtQuick.Layouts 1.15
 
-Rectangle {
+Item {
     id: page
-    anchors.fill: parent
-    color: Qt.rgba(0, 0, 0, 0.55)
-    // 初始隐藏: 否则遮罩会一直吞掉主界面的鼠标事件
-    visible: false
-    opacity: 0
 
-    // 点击遮罩关闭
-    MouseArea {
+    Flickable {
+        id: body
         anchors.fill: parent
-        onClicked: page.close()
-    }
+        contentWidth: width
+        contentHeight: Math.max(height, col.implicitHeight + Theme.spL * 2)
+        clip: true
+        boundsBehavior: Flickable.StopAtBounds
 
-    // 当前是滑入还是滑出, 动画的 to 值由它决定
-    property bool opening: true
-
-    function open()  { opening = true;  visible = true; slideAnim.restart() }
-    function close() { opening = false; slideAnim.restart() }
-
-    // ── 滑入/滑出动画 (两处动画合并到这里, 避免重复 id) ──
-    ParallelAnimation {
-        id: slideAnim
-        NumberAnimation {
-            target: panel
-            property: "x"
-            to: page.opening ? page.width - panel.width : page.width
-            duration: 200
-            easing.type: Easing.OutCubic
+        ScrollBar.vertical: ScrollBar {
+            policy: body.contentHeight > body.height + 1 ? ScrollBar.AsNeeded
+                                                        : ScrollBar.AlwaysOff
         }
-        NumberAnimation {
-            target: page
-            property: "opacity"
-            to: page.opening ? 1 : 0
-            duration: page.opening ? 180 : 160
-        }
-        // 滑出结束后真正隐藏, 否则遮罩继续拦截点击
-        onStopped: if (!page.opening) page.visible = false
-    }
-
-    Component.onCompleted: panel.x = width
-
-    // ── 目录选择对话框 ──
-    // 注意: QtQuick.Dialogs 的 FileDialog 用 selectFolder 选目录,
-    // 没有 folderMode 属性 (那是 Qt.labs.platform 的 API, 两者不同)。
-    FileDialog {
-        id: driveDialog
-        title: "选择 iCloud Drive 目录"
-        selectFolder: true
-        // 从当前路径打开, 避免每次都从盘符根开始翻
-        folder: "file:///" + Bridge.driveRoot
-        onAccepted: Bridge.setDriveRoot(selectedFile.toString())
-    }
-
-    // ══════════════════════════════════════════════════════════════
-    //  面板
-    // ══════════════════════════════════════════════════════════════
-    Rectangle {
-        id: panel
-        width: 460
-        height: Math.min(page.height - 40, content.implicitHeight + Theme.spXL * 2)
-        x: page.width
-        color: Theme.bgPanel
-        border.color: Theme.border
-        border.width: 1
-        radius: Theme.radius
 
         ColumnLayout {
-            id: content
-            anchors.fill: parent
-            anchors.margins: Theme.spXL
+            id: col
+            // 限宽并居中。这里没有 fillHeight 子项, 所以不必给确定高度。
+            width: Math.min(body.width - Theme.spL * 2, 640)
+            x: (body.width - width) / 2
+            y: Theme.spL
             spacing: Theme.spL
 
-            // ── 标题栏 ──
-            RowLayout {
-                Layout.fillWidth: true
-                Label {
-                    text: "设置"
-                    color: Theme.textHi
-                    font.pixelSize: Theme.fsBig
-                    font.bold: true
-                }
-                Item { Layout.fillWidth: true }
-                Button {
-                    width: 28; height: 28
-                    onClicked: page.close()
-                    contentItem: Text {
-                        text: "✕"; color: Theme.textMid
-                        font.pixelSize: Theme.fsBody
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                    }
-                    background: Rectangle {
-                        radius: Theme.radius
-                        color: parent.hovered ? Theme.bgHover : "transparent"
-                    }
-                }
+            Label {
+                text: "设置"
+                color: Theme.textHi
+                font.pixelSize: Theme.fsBig
+                font.bold: true
             }
 
             Rectangle { Layout.fillWidth: true; height: 1; color: Theme.border }
@@ -117,81 +50,56 @@ Rectangle {
             // ══════════════════════════════════════════════════
             //  开机自启动
             // ══════════════════════════════════════════════════
-            ColumnLayout {
+            RowLayout {
                 Layout.fillWidth: true
-                spacing: 6
 
-                RowLayout {
+                ColumnLayout {
+                    spacing: 1
                     Layout.fillWidth: true
-                    ColumnLayout {
-                        spacing: 1
-                        Layout.fillWidth: true
-                        Label {
-                            text: "开机自启动"
-                            color: Theme.textHi
-                            font.pixelSize: Theme.fsBody
-                            font.bold: true
-                        }
-                        Label {
-                            text: "登录 Windows 后自动运行本监控程序"
-                            color: Theme.textLo
-                            font.pixelSize: Theme.fsSmall
-                            wrapMode: Text.WordWrap
-                            Layout.fillWidth: true
-                        }
+                    Label {
+                        text: "开机自启动"
+                        color: Theme.textHi
+                        font.pixelSize: Theme.fsBody
+                        font.bold: true
                     }
-                    Switch {
-                        id: autoStartSwitch
-                        checked: Bridge.autoStart
-                        onToggled: {
-                            // 后端写注册表可能失败(如权限), 失败时回滚 UI
-                            if (!Bridge.setAutoStart(checked))
-                                checked = Bridge.autoStart
-                        }
-
-                        contentItem: Rectangle {
-                            implicitWidth: 42
-                            implicitHeight: 20
-                            radius: 10
-                            color: autoStartSwitch.checked ? Theme.ok : Theme.bgInput
-                            border.color: autoStartSwitch.checked
-                                         ? Theme.ok : Theme.borderHi
-                            Behavior on color { ColorAnimation { duration: 160 } }
-
-                            Rectangle {
-                                anchors.verticalCenter: parent.verticalCenter
-                                x: autoStartSwitch.checked
-                                   ? parent.width - width - 2 : 2
-                                width: 16; height: 16; radius: 8
-                                color: "#ffffff"
-                                Behavior on x {
-                                    NumberAnimation { duration: 160
-                                                      easing.type: Easing.OutCubic }
-                                }
-                            }
-                        }
+                    Label {
+                        text: "登录 Windows 后自动运行本监控程序"
+                        color: Theme.textLo
+                        font.pixelSize: Theme.fsSmall
+                        wrapMode: Text.WordWrap
+                        Layout.fillWidth: true
                     }
                 }
 
-                // 实际写入的命令行, 便于确认
-                Rectangle {
-                    Layout.fillWidth: true
-                    height: autoStartCmd.implicitHeight + 10
-                    visible: Bridge.autoStart
-                    color: Theme.bgInput
-                    radius: 3
-                    border.color: Theme.border
-                    border.width: 1
+                Switch {
+                    id: autoStartSwitch
+                    checked: Bridge.autoStart
+                    onToggled: {
+                        // 后端写注册表可能失败(如权限), 失败时回滚 UI
+                        if (!Bridge.setAutoStart(checked))
+                            checked = Bridge.autoStart
+                    }
 
-                    Label {
-                        id: autoStartCmd
-                        anchors.fill: parent
-                        anchors.margins: 5
-                        text: "注册表: HKCU\\...\\Run  ->  iCloudMon"
-                        color: Theme.textLo
-                        font.pixelSize: Theme.fsTiny
-                        font.family: "Consolas, monospace"
-                        elide: Text.ElideRight
+                    contentItem: Rectangle {
+                        implicitWidth: 42
+                        implicitHeight: 20
+                        radius: 10
+                        color: autoStartSwitch.checked ? Theme.ok : Theme.bgInput
+                        border.color: autoStartSwitch.checked
+                                     ? Theme.ok : Theme.borderHi
+                        Behavior on color { ColorAnimation { duration: 160 } }
+
+                        Rectangle {
+                            anchors.verticalCenter: parent.verticalCenter
+                            x: autoStartSwitch.checked
+                               ? parent.width - width - 2 : 2
+                            width: 16; height: 16; radius: 8
+                            color: "#ffffff"
+                            Behavior on x {
+                                NumberAnimation { duration: 160
+                                                  easing.type: Easing.OutCubic }
+                            }
+                        }
                     }
                 }
             }
@@ -355,51 +263,6 @@ Rectangle {
             Rectangle { Layout.fillWidth: true; height: 1; color: Theme.border }
 
             // ══════════════════════════════════════════════════
-            //  历史基线
-            // ══════════════════════════════════════════════════
-            RowLayout {
-                Layout.fillWidth: true
-
-                ColumnLayout {
-                    spacing: 1
-                    Layout.fillWidth: true
-                    Label {
-                        text: "卡死检测基线"
-                        color: Theme.textHi
-                        font.pixelSize: Theme.fsBody
-                        font.bold: true
-                    }
-                    Label {
-                        text: "每次运行自动记录。首次使用需积累样本才能判定卡死。"
-                        color: Theme.textLo
-                        font.pixelSize: Theme.fsSmall
-                        wrapMode: Text.WordWrap
-                        Layout.fillWidth: true
-                    }
-                }
-
-                Button {
-                    id: resetBtn
-                    text: "清空"
-                    onClicked: Bridge.resetHistory()
-                    contentItem: Label {
-                        text: resetBtn.text
-                        color: resetBtn.hovered ? Theme.err : Theme.textMid
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                        font.pixelSize: Theme.fsSmall
-                    }
-                    background: Rectangle {
-                        implicitWidth: 60
-                        implicitHeight: 28
-                        radius: Theme.radius
-                        color: resetBtn.hovered ? Theme.bgHover : "transparent"
-                        border.color: resetBtn.hovered ? Theme.err : Theme.borderHi
-                    }
-                }
-            }
-
-            // ══════════════════════════════════════════════════
             //  同步根目录
             // ══════════════════════════════════════════════════
             RowLayout {
@@ -478,11 +341,11 @@ Rectangle {
                 }
             }
 
-            // ══════════════════════════════════════════════════
-            //  日志
-            // ══════════════════════════════════════════════════
             Rectangle { Layout.fillWidth: true; height: 1; color: Theme.border }
 
+            // ══════════════════════════════════════════════════
+            //  运行日志
+            // ══════════════════════════════════════════════════
             RowLayout {
                 Layout.fillWidth: true
 
@@ -533,11 +396,11 @@ Rectangle {
                 }
             }
 
+            Rectangle { Layout.fillWidth: true; height: 1; color: Theme.border }
+
             // ══════════════════════════════════════════════════
             //  系统通知
             // ══════════════════════════════════════════════════
-            Rectangle { Layout.fillWidth: true; height: 1; color: Theme.border }
-
             RowLayout {
                 Layout.fillWidth: true
 
@@ -583,6 +446,8 @@ Rectangle {
                 }
             }
 
+            Rectangle { Layout.fillWidth: true; height: 1; color: Theme.border }
+
             // ══════════════════════════════════════════════════
             //  路径信息 (只读)
             // ══════════════════════════════════════════════════
@@ -624,27 +489,19 @@ Rectangle {
                 }
             }
 
-            Item { Layout.fillHeight: true }
+            Item { Layout.preferredHeight: Theme.spL }
+        }
 
-            // ── 底部按钮 ──
-            Button {
-                Layout.fillWidth: true
-                Layout.preferredHeight: 34
-                text: "关闭"
-                onClicked: page.close()
-                contentItem: Label {
-                    text: "关闭"
-                    color: Theme.textHi
-                    horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
-                    font.pixelSize: Theme.fsBody
-                }
-                background: Rectangle {
-                    radius: Theme.radius
-                    color: parent.hovered ? Theme.bgHover : Theme.bgCard
-                    border.color: Theme.borderHi
-                }
-            }
+        // ── 目录选择对话框 ──
+        // 注意: QtQuick.Dialogs 的 FileDialog 用 selectFolder 选目录,
+        // 没有 folderMode 属性 (那是 Qt.labs.platform 的 API, 两者不同)。
+        FileDialog {
+            id: driveDialog
+            title: "选择 iCloud Drive 目录"
+            selectFolder: true
+            // 从当前路径打开, 避免每次都从盘符根开始翻
+            folder: "file:///" + Bridge.driveRoot
+            onAccepted: Bridge.setDriveRoot(selectedFile.toString())
         }
     }
 }

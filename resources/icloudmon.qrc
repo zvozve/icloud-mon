@@ -5,10 +5,17 @@
         <file alias="qml/qmldir">qmldir</file>
         <file alias="qml/Main.qml">../ui/Main.qml</file>
         <file alias="qml/Theme.qml">../ui/Theme.qml</file>
+        <!-- 导航 -->
+        <file alias="qml/NavIcon.qml">../ui/NavIcon.qml</file>
+        <file alias="qml/NavItem.qml">../ui/NavItem.qml</file>
+        <!-- 页面 -->
+        <file alias="qml/OverviewPage.qml">../ui/OverviewPage.qml</file>
+        <file alias="qml/StatusPage.qml">../ui/StatusPage.qml</file>
+        <file alias="qml/SettingsPage.qml">../ui/SettingsPage.qml</file>
+        <!-- 复用组件 -->
         <file alias="qml/StatusCard.qml">../ui/StatusCard.qml</file>
         <file alias="qml/QueuePanel.qml">../ui/QueuePanel.qml</file>
         <file alias="qml/PcsPanel.qml">../ui/PcsPanel.qml</file>
         <file alias="qml/AlertBanner.qml">../ui/AlertBanner.qml</file>
-        <file alias="qml/SettingsPage.qml">../ui/SettingsPage.qml</file>
     </qresource>
 </RCC>

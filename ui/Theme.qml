@@ -49,6 +49,16 @@ QtObject {
         }
     }
 
+    // ── 导航栏 (仿 UWP NavigationView) ──
+    readonly property color navBg:        "#1a1d23"   // 比面板更深一层
+    readonly property color navHover:     "#2e333e"
+    readonly property color navActive:    "#252932"
+    readonly property color accent:      "#58a6ff"   // 选中指示条/强调色
+    readonly property int   navW:          200        // 展开宽度
+    readonly property int   navWMin:        52        // 折叠宽度(仅图标)
+    readonly property int   navItemH:       40
+    readonly property int   navIconSize:    16
+
     // ── 字号 ──
     readonly property int fsTiny:  11
     readonly property int fsSmall: 12
