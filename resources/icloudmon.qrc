@@ -1,0 +1,14 @@
+<!DOCTYPE RCC>
+<RCC version="1.0">
+    <qresource prefix="/">
+        <!-- QML 文件统一放 /qml/ 下, 引擎用 qrc:/qml/Main.qml 加载 -->
+        <file alias="qml/qmldir">qmldir</file>
+        <file alias="qml/Main.qml">../ui/Main.qml</file>
+        <file alias="qml/Theme.qml">../ui/Theme.qml</file>
+        <file alias="qml/StatusCard.qml">../ui/StatusCard.qml</file>
+        <file alias="qml/QueuePanel.qml">../ui/QueuePanel.qml</file>
+        <file alias="qml/PcsPanel.qml">../ui/PcsPanel.qml</file>
+        <file alias="qml/AlertBanner.qml">../ui/AlertBanner.qml</file>
+        <file alias="qml/SettingsPage.qml">../ui/SettingsPage.qml</file>
+    </qresource>
+</RCC>
