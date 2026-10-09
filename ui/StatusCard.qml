@@ -19,7 +19,12 @@ Rectangle {
     property color edgeColor: Theme.border
     border.color: Bridge.anomalous ? edgeColor : Theme.border
 
-    // 异常时边框呼吸, 不用闪, 减少视觉噪音
+    // 异常时边框呼吸, 不用闪, 减少视觉噪音。
+    //
+    // 说明: Animation 类没有 when 属性(只有 running/paused/loops),
+    // 之前我按 when 写过一版是错的, 已在日志里报
+    // "Cannot assign to non-existent property when"。
+    // running 绑定本来就是标准写法, 保持原样。
     SequentialAnimation on edgeColor {
         running: Bridge.anomalous
         loops: Animation.Infinite

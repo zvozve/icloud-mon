@@ -6,8 +6,10 @@
 //  日志: spdlog, 按天切分, 输出到 exe 同级\log\
 // ======================================================================
 #include <QCoreApplication>
+#include <QDateTime>
 #include <QDir>
 #include <QGuiApplication>
+#include <QHash>
 #include <QIcon>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
@@ -24,6 +26,15 @@ namespace {
 
 // 把 Qt 的告警/错误转发进 spdlog, 让 QML 报错也进日志文件。
 // QML 的加载失败如果只往 stderr 打, 关掉控制台就彻底看不到根因。
+//
+// ★ 必须限流: Qt 有些警告会以极高频率重复。实测本机在剪贴板被其他进程
+// 占用时, Qt 的 QWindowsClipboard 会以约 50ms 的间隔反复重试并告警 ——
+// 而 Qt 的重试实现里带阻塞 Sleep, 直接在 GUI 线程上停顿, 这就是拖动窗口
+// 卡的直接来源。把这些告警逐条写盘只会雪上加霜。
+//
+// 限流必须按"消息内容 + 时间窗口"做, 不能只比对上一条:
+// 剪贴板那组是 "Retrying..." / "Unable to..." **交替**出现的,
+// 相邻两条永远不同, 只比对上一句完全抑制不住。
 void routeQtMessagesToLog()
 {
     qInstallMessageHandler([](QtMsgType type, const QMessageLogContext &,
@@ -31,6 +42,29 @@ void routeQtMessagesToLog()
         // 必须 toUtf8(): spdlog 按 UTF-8 处理, 而 Qt 消息是 QString,
         // 直接 toStdString() 会按本地代码页(GBK) 转换, 中文全变乱码。
         const std::string m = msg.toUtf8().toStdString();
+
+        static QHash<QString, qint64> lastSeen;
+        static QHash<QString, int>    repeats;
+        // 消息种类不会多, 超过这个量说明有异常, 直接清空防止无限增长
+        if (lastSeen.size() > 256) {
+            lastSeen.clear();
+            repeats.clear();
+        }
+        constexpr qint64 kWindowMs = 10000;
+
+        const qint64 now = QDateTime::currentMSecsSinceEpoch();
+        const auto it = lastSeen.constFind(msg);
+        if (it != lastSeen.constEnd() && (now - it.value()) < kWindowMs) {
+            ++repeats[msg];
+            return;
+        }
+        if (repeats.value(msg) > 0) {
+            spdlog::warn("[QT] 上一条消息 10s 内重复 {} 次, 已抑制: {}",
+                         repeats.value(msg), m);
+            repeats[msg] = 0;
+        }
+        lastSeen[msg] = now;
+
         switch (type) {
         case QtDebugMsg:
         case QtInfoMsg:

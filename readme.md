@@ -218,30 +218,98 @@ C:\Users\<用户>\AppData\Roaming\zvozve\iCloudMon\icloud_state.jsonl
 
 ---
 
-## 八、已知问题
+## 八、已修复的关键坑
 
-### 数据读取失败：`Driver not loaded`
+### `Driver not loaded`：QSqlQuery 没绑定连接
 
-当前 Qt SQL 这一层未能正常读到数据库，界面显示「数据库不可读」。
+**症状**：`db.open()` 返回 `true`，但每个 `exec()` 都报
+`Driver not loaded`，界面显示「数据库不可读」。
 
-**已排除的方向**（有实测证据，不是猜测）：
+**根因**：`QSqlQuery` 的无参构造绑定的是**默认连接**
+（`QSqlDatabase::database()` 返回的那个）。而本项目用的是**具名连接**
+`icm_<时间戳>`，从未建过默认连接。所以查询压根没问到我们这条连接。
 
-- 不是数据源问题：同一份拷贝用 Python `sqlite3` 直读完全正常，
-  `client_state` / `server_state` 均能取到游标 1649，`unapplied_ranks` 为 0 行。
-- 不是 SQL 语句问题：同样的语句在 Python 下执行成功。
-- 不是位数不匹配：`qsqlite.dll` 与 `Qt5Sql.dll` 的 PE machine 均为 0x14C（x86）。
-- 不是路径问题：`libraryPaths` 已包含 `sqldrivers`，主线程预加载 `SELECT 1` 成功。
-- 不是线程问题：已改为全程主线程，连接严格局部化（建 → 用 → 一次性销毁）。
+```cpp
+QSqlQuery q;             // ✗ 绑定默认连接 -> Driver not loaded
+QSqlQuery q(db);         // ✓ 必须把连接传进去
+```
 
-现象本身很矛盾：`db.open()` 返回 `true`，但后续 `exec()` 报 `Driver not loaded`。
+**排查代价**：这个症状极具误导性，先后误判为插件路径、DLL 位数、
+线程归属、连接生命周期四类问题，全部排除后才定位到这里。
 
-### 计划方案
+**容易漏的点**：声明形式稍变就会漏掉，`grep 'QSqlQuery q;'` 查不全。
 
-绕开 Qt SQL，直接 vendored `sqlite3.c` 用 C API 读，理由：
+| 写法 | 是否匹配简单 grep | 说明 |
+|---|---|---|
+| `QSqlQuery q;` | 匹配 | 单变量 |
+| `QSqlQuery q2;` | **不匹配** | 名字含数字，`[a-zA-Z_]*` 覆盖不到 |
+| `QSqlQuery qc, qs, qu;` | **不匹配** | 多变量声明，分号不在变量名后 |
 
-- 一次消除整个问题域（插件加载 / 驱动句柄 / 部署目录 / URI 选项版本差异）。
-- 与 spdlog 一致的做法：第三方源码随仓库走，不引入包管理器。
-- 部署时不再需要携带 `sqldrivers/` 目录。
+正确的检查方式：
+
+```bash
+grep -nE '^\s*QSqlQuery ' src/IcloudMonitor.cpp   # 逐行看，别用窄模式
+```
+
+本轮就是先修了 10 处、剩这 2 处漏网，导致「修完还报同样的错」。
+
+### 用一次性诊断代替猜测
+
+错误文本分不出「驱动没装 / 连接没注册 / 连接没打开」三种情况，
+所以在首次查询失败时打一条诊断，把连接真实状态摊开：
+
+```
+[SQL-DIAG] isValid=1 isOpen=1 drv=1 drvOpen=1
+[SQL-DIAG] connName=icm_... dbName=file:...?mode=ro
+[SQL-DIAG] 已注册连接=[...]
+[SQL-DIAG] 可用驱动=[QSQLITE,...] 库路径=[...]
+```
+
+正是这条诊断证明连接完全正常，才把方向从「连接层」扭到「查询绑定层」。
+
+### QML 属性名不能凭记忆写
+
+本轮踩了两个，都只在**运行期**报错：
+
+| 写法 | 实际 API | 报错 |
+|---|---|---|
+| `SequentialAnimation { when: ... }` | Animation 没有 `when`，只有 `running` | `Cannot assign to non-existent property "when"` |
+| `Behavior { when: ... }` | Behavior 没有 `when`，只有 `enabled` | 同上 |
+| `HoverHandler { }` 上取 `containsMouse` | HoverHandler 的属性是 `hovered` | `Unable to assign [undefined] to bool` |
+| `FileDialog { folderMode: ... }` | `QtQuick.Dialogs` 用 `selectFolder: true` | `Cannot assign to non-existent property` |
+
+核实方式（别猜，直接问 Qt 安装目录）：
+
+```bash
+grep -n 'Q_PROPERTY' $QT/include/QtQuick/5.15.2/QtQuick/private/qquickanimation_p.h
+grep -n 'Q_PROPERTY' $QT/include/QtQuick/5.15.2/QtQuick/private/qquickbehavior_p.h
+```
+
+### QML 绑定错误会拖慢界面
+
+`Repeater` 的 delegate 里写 `width: ListView.view.width` ——
+delegate 不属于 ListView，`ListView.view` 是 `null`，每帧报错。
+再加上 delegate 声明了 `required property` 之后 `index` 不再自动注入
+（必须自己写 `required property int index`），错误条目会反复刷。
+
+这些错误经 Qt 消息处理器 → spdlog → **同步写盘**，连续报错时就是
+GUI 线程上的持续磁盘 I/O，直接表现为拖动窗口卡顿。
+
+### Qt 消息必须限流
+
+Qt 某些警告会高频重复。实测本机在剪贴板被其他进程占用（另一个应用
+弹着模态框并持有剪贴板）时，`QWindowsClipboard` 会以约 50ms 间隔
+反复重试并告警。Qt 的重试实现里带阻塞 `Sleep`，直接在 GUI 线程上停顿。
+
+`main.cpp` 里对 Qt 消息做了**按内容 + 10 秒窗口**的限流。必须用时间
+窗口，不能只比对上一条 —— 剪贴板那组是 `Retrying...` / `Unable to...`
+**交替**出现的，相邻两条永远不同。
+
+### 日志必须逐条落盘
+
+原来 `flush_on(warn)`，info 级记录全留在缓冲区，进程被强杀
+（任务管理器结束 / SIGTERM / 崩溃）时全部丢失 —— 而这恰恰是最需要
+看日志的时候。已改为 `flush_on(info)`，本应用日志量很小，代价可忽略。
 
 ---
 

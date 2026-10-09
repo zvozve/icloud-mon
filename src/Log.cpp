@@ -66,7 +66,12 @@ bool init()
         auto logger = std::make_shared<spdlog::logger>(
             "icloudmon", spdlog::sinks_init_list{console, file});
         logger->set_level(spdlog::level::trace);
-        logger->flush_on(spdlog::level::warn);
+        // 每条 info 及以上立即落盘。
+        // 原来只 flush_on(warn), 结果 info 级记录全留在缓冲区里 ——
+        // 进程被强杀(任务管理器结束进程 / SIGTERM / 崩溃)时全部丢失,
+        // 而这恰恰是最需要看日志的时候。
+        // 本应用日志量很小(状态变化才写一行), 逐条 flush 的代价可忽略。
+        logger->flush_on(spdlog::level::info);
 
         spdlog::set_default_logger(std::move(logger));
 

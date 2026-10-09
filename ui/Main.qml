@@ -225,12 +225,37 @@ ApplicationWindow {
     }
 
     // ══════════════════════════════════════════════════════════════
-    //  主体
+    //  主体 (包在ScrollView 里)
+    //
+    //  为什么必须加滚动容器: 原来主体是 ColumnLayout + anchors.fill,
+    //  窗口一缩小底部内容就被裁掉且无法访问。
+    //
+    //  为什么用 Flickable 而不是 ScrollView 直接包ColumnLayout:
+    //  ScrollView 会把 ColumnLayout 当 childItem, 按 child 的 implicitHeight
+    //  算高度; 但 ColumnLayout 又被 anchors.fill 约束, 两者打架会导致
+    //  高度算不出来。显式写成 contentWidth/contentHeight 最直接可控。
     // ══════════════════════════════════════════════════════════════
-    ColumnLayout {
+    Flickable {
+        id: body
         anchors.fill: parent
         anchors.margins: Theme.spL
-        spacing: Theme.sp
+        contentWidth: width
+        // 内容高由 bodyLayout 的 implicitHeight 决定, 不足一屏时正好等于
+        // 可见高度, 也就不会出现多余滚动条
+        contentHeight: Math.max(height, bodyLayout.implicitHeight + Theme.spL)
+        clip: true
+        boundsBehavior: Flickable.StopAtBounds
+
+        // 只在需要时才显示滚动条, 且不一直占位导致内容宽度跳动
+        ScrollBar.vertical: ScrollBar {
+            policy: body.contentHeight > body.height ? ScrollBar.AsNeeded
+                                                      : ScrollBar.AlwaysOff
+        }
+
+        ColumnLayout {
+            id: bodyLayout
+            width: body.width      // 横向铺满, 纵向由 implicitHeight 撑开
+            spacing: Theme.sp
 
         // ── 异常横幅 ──
         AlertBanner {
@@ -332,7 +357,11 @@ ApplicationWindow {
                         delegate: Rectangle {
                             required property string name
                             required property string stateText
-                            width: ListView.view.width
+                            // 这个 delegate 属于 Repeater, 不是 ListView ——
+                            // 写 ListView.view.width 会取到 null, 报
+                            // "Cannot read property 'width' of null"。
+                            // 父级是 ColumnLayout, 宽度交给 Layout 管理。
+                            Layout.fillWidth: true
                             height: 26
                             color: Theme.bgCard
                             radius: 3
@@ -361,7 +390,10 @@ ApplicationWindow {
                                 }
                             }
 
-                            ToolTip.visible: nameArea.containsMouse
+                            // HoverHandler 的属性是 hovered, 没有 containsMouse
+                            // (那是 MouseArea 的)。写错会得到 undefined, 报
+                            // "Unable to assign [undefined] to bool"。
+                            ToolTip.visible: nameArea.hovered
                             ToolTip.text: name
                             HoverHandler { id: nameArea }
                         }
@@ -388,6 +420,10 @@ ApplicationWindow {
                             required property string name
                             required property string sizeText
                             required property bool isDir
+                            // delegate 一旦声明了 required property, QML 就不再
+                            // 自动注入 index 上下文属性, 必须自己声明一项。
+                            // 否则 index 未定义, 报 "ReferenceError: index is not defined"。
+                            required property int index
                             width: ListView.view.width
                             height: 24
                             color: index % 2 === 0 ? "transparent" : Theme.bgPanel
@@ -432,6 +468,9 @@ ApplicationWindow {
                 }
             }
         }
+        // 关闭 bodyLayout(ColumnLayout)
+    }
+    // 关闭 body(Flickable)
     }
 
     // ══════════════════════════════════════════════════════════════
@@ -452,8 +491,14 @@ ApplicationWindow {
         anchors.right: parent.right
         anchors.bottom: parent.bottom
         anchors.margins: Theme.spL
-        width: toastText.length > 0 ? Math.min(420, implicitWidth + Theme.spL * 2) : 0
-        height: toastText.length > 0 ? implicitHeight + Theme.sp : 0
+        // 尺寸取内部 RowLayout 的隐含尺寸。
+        // 原写法用的是 Rectangle 自己的 implicitWidth —— 但 Rectangle 不会
+        // 从子项推导 implicit 尺寸, 那个值是 0, toast 实际只有 32px 宽。
+        // 这里改用 layout 的隐含尺寸, 这才是真正随文本变化的量。
+        width: toastText.length > 0
+               ? Math.min(420, toastRow.implicitWidth + Theme.spL * 2) : 0
+        height: toastText.length > 0
+                ? toastRow.implicitHeight + Theme.sp * 2 : 0
         visible: opacity > 0
         opacity: toastText.length > 0 ? 1 : 0
         color: Theme.bgCard
@@ -465,9 +510,19 @@ ApplicationWindow {
         z: 200
 
         Behavior on opacity { NumberAnimation { duration: 200 } }
-        Behavior on width { NumberAnimation { duration: 180 } }
+        // Behavior 没有 when 属性(只有 enabled), 之前写成 when 是错的。
+        // 平时 toast 不可见, 关掉 width 动画的参与, 避免布局抖动时
+        // 反复启动动画又反过来触发布局与重绘。
+        Behavior on width {
+            // toastText 是 win 的属性, 不是 toast 自己的 ——
+            // 写成 toast.toastText 会取到 undefined, 报
+            // "Cannot read property 'length' of undefined"。
+            enabled: win.toastText.length > 0
+            NumberAnimation { duration: 180 }
+        }
 
         RowLayout {
+            id: toastRow
             anchors.fill: parent
             anchors.margins: Theme.sp
             spacing: 8

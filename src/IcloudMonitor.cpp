@@ -13,6 +13,7 @@
 #include <QJsonObject>
 #include <QMetaObject>
 #include <QSqlDatabase>
+#include <QSqlDriver>
 #include <QSqlError>
 #include <QSqlQuery>
 #include <QStandardPaths>
@@ -194,10 +195,17 @@ bool IcloudMonitor::stageDatabase(QString &dbPath, QString &err)
 }
 
 // ── 建立只读连接 (必须在主线程调用) ──────────────────────────────
-// 关键坑(别改): 连接对象必须完全局部化。
-// 之前把 QSqlDatabase 存成成员 m_db, 再在别处拷一份局部变量 db 去 exec,
-// 结果 exec 报 "Driver not loaded" —— 因为连接生命周期被两个句柄
-// 拉扯, 注销与使用交错。现在改成: 建-> 用 -> 一次性销毁, 全在一个作用域内。
+//
+// ★ 关键坑 (别再改回去): 每个 QSqlQuery 都必须显式绑定连接 ────────
+// 本函数用的是**具名连接** "icm_<时间戳>", 而不是默认连接。
+// 而 `QSqlQuery q;` 这种无参构造绑定的是**默认连接** (QSqlDatabase::database()
+// 返回的那个)。这里从没建过默认连接, 所以:
+//     db.open() 返回 true   ← 数据库确实打开了
+//     但 q.exec() 报 "Driver not loaded" + "database not open"
+// 表现极具迷惑性: 看起来是驱动加载失败, 实际是查询压根没问到我们这条连接。
+// 这个症状排查了很久, 期间误以为是插件路径 / DLL 位数 / 线程 / 连接生命周期
+// 问题, 全部排除后才定位到这里。
+// 正确写法: QSqlQuery q(db);   ← 必须把连接传进去
 //
 // 另一个坑: Qt 的 QSQLITE 默认不解析 file: URI, 会把
 // "file:C:/xxx.db?mode=ro" 整串当文件名, 必须开 QSQLITE_OPEN_URI。
@@ -249,6 +257,8 @@ bool IcloudMonitor::readSnapshot(Snapshot &out, const QString &dbPath,
     if (!openConnection(dbPath, err, &db))
         return false;
 
+    // 诊断只打一次: 14 条查询会全部失败, 逐条打诊断会淹掉日志
+    bool diagDumped = false;
     auto exec = [&](const QString &sql, QSqlQuery &q) -> bool {
         if (q.exec(sql))
             return true;
@@ -256,12 +266,35 @@ bool IcloudMonitor::readSnapshot(Snapshot &out, const QString &dbPath,
         // 无从知道是哪条查询挂了。
         log::error(QStringLiteral("[SQL] %1 -> %2")
                        .arg(sql.left(90), q.lastError().text()));
+
+        // 一次性把连接的真实状态打出来。
+        // "Driver not loaded" 可能来自三个完全不同的原因, 光看错误文本
+        // 分不出来: 驱动没装 / 连接没注册 / 连接注册了但没打开。
+        if (!diagDumped) {
+            diagDumped = true;
+            QSqlDriver *drv = db.driver();
+            log::error(QStringLiteral(
+                           "[SQL-DIAG] isValid=%1 isOpen=%2 drv=%3 drvOpen=%4")
+                           .arg(int(db.isValid()))
+                           .arg(int(db.isOpen()))
+                           .arg(int(drv != nullptr))
+                           .arg(int(drv && drv->isOpen())));
+            log::error(QStringLiteral("[SQL-DIAG] connName=%1 dbName=%2")
+                           .arg(db.connectionName(), db.databaseName()));
+            log::error(QStringLiteral("[SQL-DIAG] 已注册连接=[%1]")
+                           .arg(QSqlDatabase::connectionNames().join(
+                               QLatin1Char(','))));
+            log::error(QStringLiteral("[SQL-DIAG] 可用驱动=[%1] 库路径=[%2]")
+                           .arg(QSqlDatabase::drivers().join(QLatin1Char(',')),
+                                QCoreApplication::libraryPaths().join(
+                                    QLatin1Char(';'))));
+        }
         return false;
     };
 
     // 1) 客户端版本
     {
-        QSqlQuery q;
+        QSqlQuery q(db);
         if (exec(QStringLiteral("SELECT version FROM app_info LIMIT 1"), q)
             && q.next())
             out.clientVersion = q.value(0).toString();
@@ -269,7 +302,7 @@ bool IcloudMonitor::readSnapshot(Snapshot &out, const QString &dbPath,
 
     // 2) 同步游标
     {
-        QSqlQuery qc, qs, qu;
+        QSqlQuery qc(db), qs(db), qu(db);
         bool cok = exec(QStringLiteral(
             "SELECT next_syncdown_rank FROM client_state LIMIT 1"), qc)
             && qc.next();
@@ -292,7 +325,7 @@ bool IcloudMonitor::readSnapshot(Snapshot &out, const QString &dbPath,
 
     // 3) 队列计数 (item_recursive_properties)
     {
-        QSqlQuery q;
+        QSqlQuery q(db);
         if (exec(QStringLiteral(
                 "SELECT COALESCE(SUM(needs_upload_count),0),"
                 "       COALESCE(SUM(needs_upload_size),0),"
@@ -334,7 +367,7 @@ bool IcloudMonitor::readSnapshot(Snapshot &out, const QString &dbPath,
 
     // 4) 待取回队列
     {
-        QSqlQuery q;
+        QSqlQuery q(db);
         if (exec(QStringLiteral(
                 "SELECT COUNT(*) FROM server_items_pending_fetches"), q)
             && q.next())
@@ -343,7 +376,7 @@ bool IcloudMonitor::readSnapshot(Snapshot &out, const QString &dbPath,
 
     // 5) 云端状态分布 (pcs_state)
     {
-        QSqlQuery q;
+        QSqlQuery q(db);
         if (exec(QStringLiteral(
                 "SELECT pcs_state, COUNT(*), COALESCE(SUM(version_size),0) "
                 "FROM server_items GROUP BY pcs_state ORDER BY 2 DESC"), q)) {
@@ -366,7 +399,7 @@ bool IcloudMonitor::readSnapshot(Snapshot &out, const QString &dbPath,
 
     // 6) 待处理项明细 (item_state<>0)
     {
-        QSqlQuery q;
+        QSqlQuery q(db);
         if (exec(QStringLiteral(
                 "SELECT item_filename, item_type, COALESCE(version_size,0) "
                 "FROM server_items WHERE item_state<>0 "
@@ -379,7 +412,7 @@ bool IcloudMonitor::readSnapshot(Snapshot &out, const QString &dbPath,
                 out.pendingItems.append(it);
             }
         }
-        QSqlQuery qd;
+        QSqlQuery qd(db);
         if (exec(QStringLiteral(
                 "SELECT COUNT(*) FROM server_items "
                 "WHERE item_state<>0 AND item_type=0"), qd) && qd.next())
@@ -388,7 +421,7 @@ bool IcloudMonitor::readSnapshot(Snapshot &out, const QString &dbPath,
 
     // 7) 本地未提交项 (卡死判定的关键)
     {
-        QSqlQuery q;
+        QSqlQuery q(db);
         if (exec(QStringLiteral(
                 "SELECT item_filename, item_type, item_localsyncupstate, "
                 "       COALESCE(version_size,0), COALESCE(item_in_flight_diffs,0), "
@@ -411,7 +444,7 @@ bool IcloudMonitor::readSnapshot(Snapshot &out, const QString &dbPath,
 
     // 8) 活跃 zone
     {
-        QSqlQuery q;
+        QSqlQuery q(db);
         if (exec(QStringLiteral(
                 "SELECT zonename, sync_state, currentrequestid "
                 "FROM server_zones WHERE currentrequestid <> ''"), q)) {
@@ -423,7 +456,7 @@ bool IcloudMonitor::readSnapshot(Snapshot &out, const QString &dbPath,
                 out.activeZones.append(z);
             }
         }
-        QSqlQuery qz;
+        QSqlQuery qz(db);
         if (exec(QStringLiteral("SELECT COUNT(*) FROM server_zones"), qz)
             && qz.next())
             out.zoneTotal = qz.value(0).toInt();
@@ -431,7 +464,7 @@ bool IcloudMonitor::readSnapshot(Snapshot &out, const QString &dbPath,
 
     // 9) 错误码
     {
-        QSqlQuery q;
+        QSqlQuery q(db);
         if (exec(QStringLiteral(
                 "SELECT upload_error_code, COUNT(*) FROM local_items "
                 "WHERE upload_error_code <> 0 "
@@ -439,7 +472,7 @@ bool IcloudMonitor::readSnapshot(Snapshot &out, const QString &dbPath,
             while (q.next())
                 out.uploadErrors.append({ q.value(0).toInt(), q.value(1).toInt() });
         }
-        QSqlQuery q2;
+        QSqlQuery q2(db);
         if (exec(QStringLiteral(
                 "SELECT download_error_code, COUNT(*) FROM local_items "
                 "WHERE download_error_code <> 0 "
