@@ -60,7 +60,12 @@ echo.
 
 REM --- 4. windeployqt ------------------------------------------------
 echo [4/4] Deploying Qt runtime ...
-"%QTDIR%\bin\windeployqt.exe" --release --32bit --no-translations ^
+REM--qmldir=ui is required so windeployqt scans the QML imports and
+REM pulls in QtQuick/Dialogs (used by the folder picker) as well as
+REM QtQuick/Controls. Omitting it yields a silent QML load failure.
+REM NOTE: no --32bit / --64bit here; Qt 5.15 windeployqt auto-detects
+REM the target architecture from the exe itself.
+"%QTDIR%\bin\windeployqt.exe" --release --no-translations ^
         --qmldir=ui %BUILDDIR%\%TARGET%
 if errorlevel 1 (
     echo [WARN] windeployqt returned %errorlevel%, exe may miss some DLLs.

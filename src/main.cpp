@@ -143,9 +143,8 @@ int main(int argc, char *argv[])
         QStringLiteral("Bridge"), &bridge);
     engine.rootContext()->setContextProperty(
         QStringLiteral("AppVersion"), app.applicationVersion());
-    engine.rootContext()->setContextProperty(
-        QStringLiteral("DriveRoot"),
-        icloud::paths::driveRoot());
+    // 注意: 这里不注入 DriveRoot —— 同步根目录可被用户修改,
+    // 注入的是启动快照, 改完不会刷新。统一走 Bridge.driveRoot 属性。
 
     engine.load(QUrl(QStringLiteral("qrc:/qml/Main.qml")));
     if (engine.rootObjects().isEmpty()) {

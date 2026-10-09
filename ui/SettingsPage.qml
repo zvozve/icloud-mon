@@ -10,6 +10,7 @@
 // ======================================================================
 import QtQuick 2.15
 import QtQuick.Controls 2.15
+import QtQuick.Dialogs 1.3
 import QtQuick.Layouts 1.15
 
 Rectangle {
@@ -53,6 +54,18 @@ Rectangle {
     }
 
     Component.onCompleted: panel.x = width
+
+    // ── 目录选择对话框 ──
+    // 注意: QtQuick.Dialogs 的 FileDialog 用 selectFolder 选目录,
+    // 没有 folderMode 属性 (那是 Qt.labs.platform 的 API, 两者不同)。
+    FileDialog {
+        id: driveDialog
+        title: "选择 iCloud Drive 目录"
+        selectFolder: true
+        // 从当前路径打开, 避免每次都从盘符根开始翻
+        folder: "file:///" + Bridge.driveRoot
+        onAccepted: Bridge.setDriveRoot(selectedFile.toString())
+    }
 
     // ══════════════════════════════════════════════════════════════
     //  面板
@@ -387,6 +400,85 @@ Rectangle {
             }
 
             // ══════════════════════════════════════════════════
+            //  同步根目录
+            // ══════════════════════════════════════════════════
+            RowLayout {
+                Layout.fillWidth: true
+
+                ColumnLayout {
+                    spacing: 1
+                    Layout.fillWidth: true
+                    Label {
+                        text: "同步根目录"
+                        color: Theme.textHi
+                        font.pixelSize: Theme.fsBody
+                        font.bold: true
+                    }
+                    Label {
+                        text: "点「浏览」选择 iCloud Drive 本地文件夹"
+                        color: Theme.textLo
+                        font.pixelSize: Theme.fsSmall
+                        wrapMode: Text.WordWrap
+                        Layout.fillWidth: true
+                    }
+                    // 当前值走 Bridge 属性而非 DriveRoot 上下文属性 ——
+                    // 后者是启动时的快照, 改完不会刷新。
+                    Label {
+                        text: Bridge.driveRoot
+                        color: Theme.info
+                        font.pixelSize: Theme.fsTiny
+                        font.family: "Consolas, monospace"
+                        elide: Text.ElideMiddle
+                        Layout.fillWidth: true
+                    }
+                }
+
+                Button {
+                    id: browseDriveBtn
+                    text: "浏览"
+                    onClicked: driveDialog.open()
+                    contentItem: Label {
+                        text: browseDriveBtn.text
+                        color: browseDriveBtn.hovered ? Theme.info : Theme.textMid
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                        font.pixelSize: Theme.fsSmall
+                    }
+                    background: Rectangle {
+                        implicitWidth: 56
+                        implicitHeight: 28
+                        radius: Theme.radius
+                        color: browseDriveBtn.hovered ? Theme.bgHover : "transparent"
+                        border.color: browseDriveBtn.hovered ? Theme.info : Theme.borderHi
+                    }
+                }
+
+                Button {
+                    id: resetDriveBtn
+                    text: "默认"
+                    visible: Bridge.driveRoot !== "C:/Container/Cloud/iCloudDrive"
+                    onClicked: Bridge.resetDriveRoot()
+                    ToolTip.visible: hovered
+                    ToolTip.text: "恢复内置默认路径"
+                    ToolTip.delay: 600
+                    contentItem: Label {
+                        text: resetDriveBtn.text
+                        color: resetDriveBtn.hovered ? Theme.warn : Theme.textMid
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                        font.pixelSize: Theme.fsSmall
+                    }
+                    background: Rectangle {
+                        implicitWidth: 48
+                        implicitHeight: 28
+                        radius: Theme.radius
+                        color: resetDriveBtn.hovered ? Theme.bgHover : "transparent"
+                        border.color: resetDriveBtn.hovered ? Theme.warn : Theme.borderHi
+                    }
+                }
+            }
+
+            // ══════════════════════════════════════════════════
             //  日志
             // ══════════════════════════════════════════════════
             Rectangle { Layout.fillWidth: true; height: 1; color: Theme.border }
@@ -459,7 +551,7 @@ Rectangle {
                     spacing: 2
 
                     Label {
-                        text: "同步根: " + DriveRoot
+                        text: "同步根: " + Bridge.driveRoot
                         color: Theme.textLo
                         font.pixelSize: Theme.fsTiny
                         font.family: "Consolas, monospace"

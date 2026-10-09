@@ -250,6 +250,17 @@ public:
     // 在资源管理器中打开日志目录
     Q_INVOKABLE void openLogDir();
 
+    // ── 同步根目录 ──
+    // 注意: 不能只靠 main.cpp 注入的 DriveRoot 上下文属性 ——
+    // 那是启动时的快照, 用户改了之后不会变。必须走这个属性。
+    Q_PROPERTY(QString driveRoot READ driveRoot NOTIFY driveRootChanged)
+    // 在资源管理器中打开 iCloud Drive 同步根目录
+    Q_INVOKABLE void openDriveRoot();
+    // 设置同步根目录 (写入注册表), 失败返回 false
+    Q_INVOKABLE bool setDriveRoot(const QString &path);
+    // 恢复内置默认路径
+    Q_INVOKABLE void resetDriveRoot();
+
     // ── getter ──
     QString stateName() const;
     QString stateDetail() const;
@@ -300,6 +311,8 @@ public:
     // 日志路径(供设置页展示)
     QString logDir() const { return log::logDir(); }
     QString logFile() const { return log::currentLogFile(); }
+    // 同步根目录(可被用户改, 所以每次读都回 IcloudPaths 取当前值)
+    QString driveRoot() const;
 
 signals:
     void snapshotChanged();
@@ -308,6 +321,7 @@ signals:
     void settingsChanged();
     void anomalyChanged();
     void logChanged();
+    void driveRootChanged();
     // 给 QML 弹提示用
     void notify(const QString &kind, const QString &text);
 

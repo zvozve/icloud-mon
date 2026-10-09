@@ -4,6 +4,7 @@
 #include <QDir>
 #include <QProcess>
 
+#include "IcloudPaths.h"
 #include "Log.h"
 
 namespace icloud {
@@ -164,6 +165,74 @@ void Bridge::openLogDir()
     // 用 explorer 而不是 QProcess::startDetached("cmd") ——
     // 后者在中文系统上容易因编码问题起不来
     QProcess::startDetached(QStringLiteral("explorer.exe"), { dir });
+}
+
+// ── 同步根目录 ────────────────────────────────────────────────────
+QString Bridge::driveRoot() const
+{
+    return paths::driveRoot();
+}
+
+void Bridge::openDriveRoot()
+{
+    const QString dir = paths::driveRoot();
+    if (!QDir(dir).exists()) {
+        log::warn(QStringLiteral("同步根目录不存在: %1").arg(dir));
+        emit notify(QStringLiteral("error"),
+                    QStringLiteral("同步根目录不存在: %1").arg(dir));
+        return;
+    }
+    log::userAction(QStringLiteral("打开 iCloud 目录"), dir);
+    QProcess::startDetached(QStringLiteral("explorer.exe"), { dir });
+}
+
+bool Bridge::setDriveRoot(const QString &path)
+{
+    const QString clean = QDir::cleanPath(QDir::fromNativeSeparators(path));
+
+    // 先校验再存: 存一个不存在的路径进去, 之后每次打开都会失败,
+    // 而用户很难想到是自己存错了路径。
+    QDir probe(clean);
+    if (!probe.exists()) {
+        log::userAction(QStringLiteral("设置同步根目录=%1").arg(clean),
+                        QStringLiteral("失败: 目录不存在"));
+        emit notify(QStringLiteral("error"),
+                    QStringLiteral("目录不存在: %1").arg(clean));
+        return false;
+    }
+    // iCloud Drive 根目录里必然有 .icloud 隐藏文件, 拿它做二次确认,
+    // 避免用户随手选了个普通文件夹却以为设置成功了。
+    const bool looksLikeDrive = !probe.entryList(
+                    QStringList() << QStringLiteral(".icloud"),
+                    QDir::Hidden | QDir::Files).isEmpty();
+
+    QString err;
+    if (!paths::setDriveRoot(clean, &err)) {
+        log::userAction(QStringLiteral("设置同步根目录=%1").arg(clean),
+                        QStringLiteral("失败: %1").arg(err));
+        emit notify(QStringLiteral("error"),
+                    QStringLiteral("保存失败: %1").arg(err));
+        return false;
+    }
+
+    log::userAction(QStringLiteral("设置同步根目录=%1").arg(clean),
+                    looksLikeDrive ? QStringLiteral("成功(检测到 .icloud)")
+                                   : QStringLiteral("成功(未检测到 .icloud)"));
+    emit driveRootChanged();
+    emit notify(QStringLiteral("ok"), QStringLiteral("同步根目录已更新"));
+    // 路径变了, 立刻重采一次让界面跟上
+    m_monitor->refresh();
+    return true;
+}
+
+void Bridge::resetDriveRoot()
+{
+    paths::clearDriveRoot();
+    log::userAction(QStringLiteral("恢复默认同步根目录"),
+                    paths::driveRoot());
+    emit driveRootChanged();
+    emit notify(QStringLiteral("ok"), QStringLiteral("已恢复默认路径"));
+    m_monitor->refresh();
 }
 
 // ── 快照处理 ──────────────────────────────────────────────────────

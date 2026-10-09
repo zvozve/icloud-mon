@@ -176,6 +176,29 @@ ApplicationWindow {
                 }
             }
 
+            // ── 打开 iCloud 目录 ──
+            Button {
+                id: openDriveBtn
+                width: 34; height: 30
+                onClicked: Bridge.openDriveRoot()
+                ToolTip.visible: hovered
+                ToolTip.text: "打开 iCloud 目录\n" + Bridge.driveRoot
+                ToolTip.delay: 600
+
+                contentItem: Text {
+                    text: "📂"                       // 文件夹
+                    color: openDriveBtn.hovered ? Theme.infoHi : Theme.textMid
+                    font.pixelSize: 15
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                }
+                background: Rectangle {
+                    radius: Theme.radius
+                    color: openDriveBtn.hovered ? Theme.bgHover : "transparent"
+                    border.color: openDriveBtn.hovered ? Theme.borderHi : "transparent"
+                }
+            }
+
             // ── 设置按钮 ──
             Button {
                 id: settingsBtn

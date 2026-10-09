@@ -21,7 +21,8 @@ Windows 上 iCloud Drive（Store 版）的同步状态监控器。
 | 待处理项 | 明确列出待上传、待下载的文件名与大小 |
 | 异常告警 | 上传错误码与个数、下载错误码与个数、容量超限 |
 | 卡死检测 | 处于活动状态但活动指纹连续 N 秒无变化 → 红色横幅告警 |
-| 设置页 | 刷新间隔、卡死阈值、自启动开关、运行日志入口 |
+| 打开目录 | 顶栏 📂 按钮，资源管理器打开 iCloud Drive 同步根目录 |
+| 设置页 | 刷新间隔、卡死阈值、自启动开关、同步根目录选择、运行日志入口 |
 
 ### 卡死是怎么判的
 
@@ -133,6 +134,7 @@ cmake --build build
 | `AUTORCC` 与 `qt5_add_resources` 重复处理 | 资源二次编译 | `CMAKE_AUTORCC OFF` |
 | `windeployqt` 5.15 不认 `--32bit` | 报 Unknown option | 用 `--release`，它自动判定位数 |
 | `pragma Singleton` 必须配套 `qmldir` | QML 加载失败 | `resources/qmldir` 内容为 `singleton Theme 1.0 Theme.qml` |
+| `--qmldir=ui` 必须给 | 目录选择对话框 `QtQuick/Dialogs` 不会被部署，运行时才报缺模块 | `build.bat` 已带该参数 |
 
 ### QML 侧的限制
 
@@ -148,7 +150,7 @@ cmake --build build
 基于 spdlog，按天切分，输出到 **exe 同级 `log\` 目录**：
 
 ```
-build\Release\log\icloudmon_2026-10-09.log
+build\Release\log\icloudmon_2026-10-09
 ```
 
 | 项 | 值 |
@@ -177,7 +179,33 @@ QML 加载失败这类只往 stderr 打的问题，关掉控制台后也能查�
 
 ---
 
-## 六、历史基线存放位置
+## 六、同步根目录的取用
+
+路径优先级，从外到内：
+
+| 优先级 | 来源 | 用途 |
+|---|---|---|
+| 1 | 环境变量 `ICLOUD_DRIVE_ROOT` | 临时调试，可临时改指向而不动注册表 |
+| 2 | 注册表 `HKCU\Software\zvozve\iCloudMon` 的 `driveRoot` | 用户在设置页选的路径，重启后仍有效 |
+| 3 | 内置默认 `C:/Container/Cloud/iCloudDrive` | 兜底 |
+
+设置页选目录时会做两项校验：目录必须存在、目录内应有 `.icloud` 隐藏文件
+（iCloud Drive 的标志）。第二项只写日志不阻断 —— 有少量目录可能为空，
+不该因此让用户选不了。
+
+**为什么不用只读的上下文属性**：`main.cpp` 原本注入过一个 `DriveRoot`
+上下文属性，那是**启动时的快照**，用户改完设置不会刷新。现已删除，
+统一走 `Bridge.driveRoot` 属性（带 `NOTIFY driveRootChanged`）。
+
+### 目录选择对话框的 API 细节
+
+`QtQuick.Dialogs` 的 `FileDialog` 选目录用的是 **`selectFolder: true`**，
+没有 `folderMode` 属性 —— `folderMode` 是 `Qt.labs.platform` 的 API，两者不同。
+写错会在运行时报 `Cannot assign to non-existent property`。
+
+---
+
+## 七、历史基线存放位置
 
 卡死检测需要跨进程比较，所以历史状态落盘。
 位置在**用户 AppData**，不是 exe 同级：
@@ -190,7 +218,7 @@ C:\Users\<用户>\AppData\Roaming\zvozve\iCloudMon\icloud_state.jsonl
 
 ---
 
-## 七、已知问题
+## 八、已知问题
 
 ### 数据读取失败：`Driver not loaded`
 
@@ -217,7 +245,7 @@ C:\Users\<用户>\AppData\Roaming\zvozve\iCloudMon\icloud_state.jsonl
 
 ---
 
-## 八、第三方与许可
+## 九、第三方与许可
 
 | 组件 | 版本 | 许可 | 位置 |
 |---|---|---|---|
