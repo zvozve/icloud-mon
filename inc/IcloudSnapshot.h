@@ -93,6 +93,11 @@ struct Snapshot
     QVector<PcsBucket>    pcsDist;
     QVector<PendingItem>  pendingItems;
     int                    pendingDirCount = 0;
+    // 仅云端(pcs_state=2, 按需下载)的项数。
+    // 注意: 这些**不是待处理任务** —— 本地没有实体是 iCloud Drive 的正常
+    // 按需下载行为。必须和 pendingItems 分开显示, 否则界面会一直挂着
+    // 十几个假的"待处理项"。
+    int                    cloudOnlyCount = 0;
     QVector<LocalPending> localPendings;
     QVector<ZoneInfo>     activeZones;
     int                    zoneTotal = 0;

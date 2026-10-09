@@ -196,6 +196,11 @@ class Bridge : public QObject
     // ── 同步游标 ──
     Q_PROPERTY(QString rankText READ rankText NOTIFY snapshotChanged)
 
+    // 仅云端项数(pcs_state=2, 按需下载)。不算待处理任务, 单独展示。
+    Q_PROPERTY(int cloudOnlyCount READ cloudOnlyCount NOTIFY snapshotChanged)
+    // 真正的待处理项数(有本地实体且状态非 0)
+    Q_PROPERTY(int pendingRealCount READ pendingRealCount NOTIFY snapshotChanged)
+
     // ── iCloud 进程 ──
     Q_PROPERTY(bool    icloudRunning READ icloudRunning NOTIFY icloudStateChanged)
     Q_PROPERTY(QString icloudProcesses READ icloudProcesses NOTIFY icloudStateChanged)
@@ -250,6 +255,9 @@ public:
     // 在资源管理器中打开日志目录
     Q_INVOKABLE void openLogDir();
 
+    // 设置页"测试通知": 验证系统通知到底能不能弹出来
+    Q_INVOKABLE void testSystemNotification();
+
     // ── 同步根目录 ──
     // 注意: 不能只靠 main.cpp 注入的 DriveRoot 上下文属性 ——
     // 那是启动时的快照, 用户改了之后不会变。必须走这个属性。
@@ -287,6 +295,11 @@ public:
     int     overQuota() const { return m_snap.overQuota; }
     QString lastError() const;
     QString rankText() const;
+    int     cloudOnlyCount() const { return m_snap.cloudOnlyCount; }
+    int     pendingRealCount() const
+    {
+        return m_snap.pendingItems.size() + m_snap.pendingDirCount;
+    }
 
     bool    icloudRunning() const { return m_icloudRunning; }
     QString icloudProcesses() const { return m_procList.join(QStringLiteral(", ")); }
@@ -322,6 +335,9 @@ signals:
     void anomalyChanged();
     void logChanged();
     void driveRootChanged();
+    // 请求 shell 弹 Windows 系统通知(由 main.cpp 的托盘承接)。
+    // 两个来源: ①刚进入卡死 ②设置页的"测试通知"按钮。
+    void systemNotify(const QString &title, const QString &detail);
     // 给 QML 弹提示用
     void notify(const QString &kind, const QString &text);
 

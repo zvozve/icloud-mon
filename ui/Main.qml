@@ -358,8 +358,19 @@ ApplicationWindow {
                         }
                         Item { Layout.fillWidth: true }
                         Label {
-                            text: Bridge.pendingItems.count + " 文件 + "
-                                  + (Bridge.localPendings.count) + " 本地未提交"
+                            // "仅云端"必须和"待处理"分开说清: 那只是本地没有
+                            // 实体(iCloud 按需下载), 属正常状态, 不是待办。
+                            // 混在一起会让人以为有十几个任务卡着。
+                            text: Bridge.pendingRealCount + " 待处理 + "
+                                  + Bridge.localPendings.count + " 本地未提交"
+                            color: Bridge.pendingRealCount > 0 ? Theme.warn
+                                                               : Theme.textLo
+                            font.pixelSize: Theme.fsTiny
+                        }
+                        Label {
+                            visible: Bridge.cloudOnlyCount > 0
+                            text: "· 仅云端 " + Bridge.cloudOnlyCount
+                                  + " 项(按需下载)"
                             color: Theme.textLo
                             font.pixelSize: Theme.fsTiny
                         }
@@ -472,7 +483,7 @@ ApplicationWindow {
                     Label {
                         Layout.alignment: Qt.AlignHCenter
                         Layout.topMargin: 20
-                        text: Bridge.pendingItems.count === 0
+                        text: Bridge.pendingRealCount === 0
                               && Bridge.localPendings.count === 0
                               ? "无待处理项，同步已追平" : ""
                         visible: text !== ""

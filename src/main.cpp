@@ -13,6 +13,8 @@
 #include <QIcon>
 #include <QOpenGLContext>
 #include <QOpenGLFunctions>
+#include <QPainter>
+#include <QPixmap>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQuickStyle>
@@ -20,6 +22,7 @@
 #include <QSqlDatabase>
 #include <QSqlError>
 #include <QSqlQuery>
+#include <QSystemTrayIcon>
 
 #include "Bridge.h"
 #include "IcloudPaths.h"
@@ -173,6 +176,31 @@ void logGraphicsBackend(QQmlApplicationEngine &engine)
     icloud::log::info(QStringLiteral("[GPU] 图形后端探针已挂载, 等待首次渲染"));
 }
 
+// 画一个 32x32 的托盘图标, 不依赖外部资源文件。
+// QSystemTrayIcon 没有图标时在部分 Windows 版本上会不显示托盘项,
+// 进而导致 showMessage 弹不出通知。
+QIcon makeTrayIcon()
+{
+    QPixmap pm(32, 32);
+    pm.fill(Qt::transparent);
+
+    QPainter p(&pm);
+    p.setRenderHint(QPainter::Antialiasing);
+    p.setPen(Qt::NoPen);
+    p.setBrush(QColor(0x58, 0xa6, 0xff));
+    p.drawEllipse(2, 2, 28, 28);
+
+    QFont f = p.font();
+    f.setPixelSize(17);
+    f.setBold(true);
+    p.setFont(f);
+    p.setPen(QColor(0x16, 0x18, 0x1d));
+    p.drawText(pm.rect(), Qt::AlignCenter, QStringLiteral("iC"));
+    p.end();
+
+    return QIcon(pm);
+}
+
 }  // namespace
 
 int main(int argc, char *argv[])
@@ -234,6 +262,41 @@ int main(int argc, char *argv[])
 
     // 图形后端信息: 只有它出现后才能确定是不是软件渲染
     logGraphicsBackend(engine);
+
+    // ══════════════════════════════════════════════════════════════
+    //  系统托盘 + 卡死告警的 Windows 系统通知
+    //
+    //  为什么必须用托盘: Windows 上没有托盘图标就弹不出系统通知
+    //  (Shell_NotifyIcon 的 NIF_INFO 前提是有托盘项)。窗口最小化或在
+    //  别的虚拟桌面时, 界面内的 Toast 根本看不到, 只有系统通知能提醒到人。
+    //
+    //  这里刻意不建右键菜单(QMenu 属于控件, 只有 QGuiApplication 时
+    //  创建控件是不受支持的)。托盘只承担"显示通知"这一个职责。
+    // ══════════════════════════════════════════════════════════════
+    QSystemTrayIcon *tray = nullptr;
+    if (QSystemTrayIcon::isSystemTrayAvailable()) {
+        tray = new QSystemTrayIcon(makeTrayIcon(), &app);
+        tray->setToolTip(QStringLiteral("iCloud 状态监控"));
+        tray->show();
+        icloud::log::info(
+            QStringLiteral("[RUN] 系统托盘已启用, 卡死告警将弹系统通知"));
+    } else {
+        icloud::log::warn(QStringLiteral(
+            "[RUN] 系统托盘不可用, 卡死告警只能记日志(不会弹通知)"));
+    }
+
+    if (tray) {
+        QObject::connect(
+            &bridge, &icloud::Bridge::systemNotify, tray,
+            [tray](const QString &title, const QString &detail) {
+                // 第 4 参是毫秒; Windows 上正文过长会被系统截断
+                tray->showMessage(title, detail, QSystemTrayIcon::Warning,
+                                  15000);
+                icloud::log::info(
+                    QStringLiteral("[RUN] 已弹出系统通知: %1 | %2")
+                        .arg(title, detail));
+            });
+    }
 
     icloud::log::info(QStringLiteral("[RUN] 界面加载完成, 进入事件循环"));
     const int rc = app.exec();

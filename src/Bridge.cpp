@@ -279,7 +279,23 @@ void Bridge::onAnomaly(const QString &kind, const QString &title,
         emit notify(kind == QStringLiteral("卡死") ? QStringLiteral("error")
                                                    : QStringLiteral("warn"),
                     QStringLiteral("[%1] %2").arg(kind, title));
+        // 卡死是新出现时, 额外请求一次 Windows 系统通知。
+        // 窗口最小化或在别的桌面时, 界面内的 Toast 是看不到的, 只有系统
+        // 通知能真正提醒到人。
+        if (kind == QStringLiteral("卡死")) {
+            log::userAction(QStringLiteral("卡死告警触发系统通知"),
+                            QStringLiteral("停滞 %1").arg(detail));
+            emit systemNotify(title, detail);
+        }
     }
+}
+
+void Bridge::testSystemNotification()
+{
+    log::userAction(QStringLiteral("测试系统通知"));
+    emit systemNotify(
+        QStringLiteral("iCloud 状态监控"),
+        QStringLiteral("测试通知: 能弹出这条说明只要 iCloud 卡死, 你就能收到提醒。"));
 }
 
 void Bridge::onAnomalyCleared()

@@ -29,6 +29,11 @@ endif()
 
 find_package(Qt5 5.15 REQUIRED COMPONENTS
     Core Gui Qml Quick QuickControls2 Sql
+    # Widgets 仅用于 QSystemTrayIcon(卡死时的 Windows 系统通知)。
+    # 注意: QSystemTrayIcon 属于 QtWidgets, 不是 QtGui。
+    # 部署代价为零 —— windeployqt 本来就已带上 Qt5Widgets.dll
+    # (QtQuick.Dialogs 依赖 QtQuick.PrivateWidgets)。
+    Widgets
 )
 
 # Qt 资源文件 (QML 打包进 exe, 免外部文件依赖)
@@ -83,6 +88,7 @@ target_link_libraries(iCloudMon PRIVATE
     Qt5::Quick
     Qt5::QuickControls2
     Qt5::Sql
+    Qt5::Widgets
     spdlog_header_only
 )
 

@@ -534,6 +534,56 @@ Rectangle {
             }
 
             // ══════════════════════════════════════════════════
+            //  系统通知
+            // ══════════════════════════════════════════════════
+            Rectangle { Layout.fillWidth: true; height: 1; color: Theme.border }
+
+            RowLayout {
+                Layout.fillWidth: true
+
+                ColumnLayout {
+                    spacing: 1
+                    Layout.fillWidth: true
+                    Label {
+                        text: "系统通知"
+                        color: Theme.textHi
+                        font.pixelSize: Theme.fsBody
+                        font.bold: true
+                    }
+                    Label {
+                        text: "iCloud 卡死时弹 Windows 通知，窗口最小化也能收到"
+                        color: Theme.textLo
+                        font.pixelSize: Theme.fsSmall
+                        wrapMode: Text.WordWrap
+                        Layout.fillWidth: true
+                    }
+                }
+
+                Button {
+                    id: testNotifyBtn
+                    text: "测试通知"
+                    onClicked: Bridge.testSystemNotification()
+                    ToolTip.visible: hovered
+                    ToolTip.text: "立即弹一条测试通知，确认系统通知是否正常"
+                    ToolTip.delay: 600
+                    contentItem: Label {
+                        text: testNotifyBtn.text
+                        color: testNotifyBtn.hovered ? Theme.info : Theme.textMid
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                        font.pixelSize: Theme.fsSmall
+                    }
+                    background: Rectangle {
+                        implicitWidth: 76
+                        implicitHeight: 28
+                        radius: Theme.radius
+                        color: testNotifyBtn.hovered ? Theme.bgHover : "transparent"
+                        border.color: testNotifyBtn.hovered ? Theme.info : Theme.borderHi
+                    }
+                }
+            }
+
+            // ══════════════════════════════════════════════════
             //  路径信息 (只读)
             // ══════════════════════════════════════════════════
             Rectangle {

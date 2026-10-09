@@ -400,9 +400,13 @@ bool IcloudMonitor::readSnapshot(Snapshot &out, const QString &dbPath,
     // 6) 待处理项明细 (item_state<>0)
     {
         QSqlQuery q(db);
+        // 真正的"待处理"必须排除 pcs_state=2(仅云端)。实测: item_state=1 且
+        // pcs_state=2 的项, 本地磁盘上根本没有实体 —— 那是 iCloud Drive 的
+        // 按需下载(Files On-Demand), 属**正常状态**, 不是待处理任务。
+        // 之前不加这个条件, 界面上会一直挂着十几个"待处理项"误导用户。
         if (exec(QStringLiteral(
                 "SELECT item_filename, item_type, COALESCE(version_size,0) "
-                "FROM server_items WHERE item_state<>0 "
+                "FROM server_items WHERE item_state<>0 AND pcs_state<>2 "
                 "ORDER BY version_size DESC LIMIT 20"), q)) {
             while (q.next()) {
                 PendingItem it;
@@ -412,10 +416,18 @@ bool IcloudMonitor::readSnapshot(Snapshot &out, const QString &dbPath,
                 out.pendingItems.append(it);
             }
         }
+        // 仅云端(按需下载)的项数: 单独统计, 界面上标明它不算待处理
+        QSqlQuery qc(db);
+        if (exec(QStringLiteral(
+                "SELECT COUNT(*) FROM server_items WHERE pcs_state=2"), qc)
+            && qc.next()) {
+            out.cloudOnlyCount = qc.value(0).toInt();
+        }
         QSqlQuery qd(db);
         if (exec(QStringLiteral(
                 "SELECT COUNT(*) FROM server_items "
-                "WHERE item_state<>0 AND item_type=0"), qd) && qd.next())
+                "WHERE item_state<>0 AND item_type=0 AND pcs_state<>2"), qd)
+            && qd.next())
             out.pendingDirCount = qd.value(0).toInt();
     }
 
