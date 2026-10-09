@@ -15,6 +15,7 @@
 #include <QUrl>
 
 #include "AutoStart.h"
+#include "IcloudCategories.h"
 #include "IcloudMonitor.h"
 #include "IcloudService.h"
 #include "IcloudSnapshot.h"
@@ -336,6 +337,26 @@ public:
     // 恢复内置默认路径
     Q_INVOKABLE void resetDriveRoot();
 
+    // ── 四类同步 (云盘/相册/密码/书签) ──
+    // 每个元素是 map: key name summary enabled userSet autoOn autoWhy
+    //                 hasData note details[{label,value}]
+    Q_PROPERTY(QVariantList categories READ categories NOTIFY categoriesChanged)
+    // 手动指定某类是否启用(覆盖自动检测)。自动检测对密码/书签不可靠,
+    // 详见 IcloudCategories.h。
+    Q_INVOKABLE void setCategoryEnabled(const QString &key, bool on);
+    // 清除手动设置, 回退到自动检测
+    Q_INVOKABLE void clearCategoryEnabled(const QString &key);
+
+    // ── 侧边栏顺序 / 默认启动页 ──
+    // 首页固定最前、设置固定最后, 中间四类可调序。
+    Q_PROPERTY(QStringList navOrder READ navOrder NOTIFY navOrderChanged)
+    Q_INVOKABLE void moveCategory(const QString &key, int delta);
+    Q_INVOKABLE void resetNavOrder();
+    // 显示名(供顺序设置界面显示"云盘"而不是"drive")
+    Q_INVOKABLE QString categoryName(const QString &key) const;
+    Q_PROPERTY(QString defaultPage READ defaultPage WRITE setDefaultPage
+                   NOTIFY settingsChanged)
+
     // ── getter ──
     QString stateName() const;
     QString stateDetail() const;
@@ -387,6 +408,19 @@ public:
     QStringList anomalyList() const { return m_anomalyList; }
     QVariantList pcsBuckets() const;
 
+    // 四类状态(每次采样刷新)
+    QVector<CategoryStatus> m_categories;
+    QStringList m_navOrder;
+    QString     m_defaultPage;
+    // 类别刷新计数: 三类外部库较重, 每 3 个采样才刷一次
+    int         m_catTick = 0;
+    // 上一次的四类状态签名, 只在变化时记日志
+    QString     m_lastCatSig;
+    void refreshCategories();
+    // 从 QSettings 读回顺序与默认页; 顺带剔除已不存在的 key
+    void loadNavSettings();
+    void saveNavOrder();
+
     PendingModel       *pendingItems() { return &m_pendingModel; }
     LocalPendingModel  *localPendings() { return &m_localModel; }
     TrashModel         *trashItems() { return &m_trashModel; }
@@ -400,6 +434,11 @@ public:
     // 同步根目录(可被用户改, 所以每次读都回 IcloudPaths 取当前值)
     QString driveRoot() const;
 
+    QVariantList categories() const;
+    QStringList  navOrder() const { return m_navOrder; }
+    QString      defaultPage() const { return m_defaultPage; }
+    void         setDefaultPage(const QString &p);
+
 signals:
     void snapshotChanged();
     void icloudStateChanged();
@@ -408,6 +447,8 @@ signals:
     void anomalyChanged();
     void logChanged();
     void driveRootChanged();
+    void categoriesChanged();
+    void navOrderChanged();
     // 请求 shell 弹 Windows 系统通知(由 main.cpp 的托盘承接)。
     // 两个来源: ①刚进入卡死 ②设置页的"测试通知"按钮。
     void systemNotify(const QString &title, const QString &detail);

@@ -61,6 +61,7 @@ add_executable(iCloudMon WIN32
     src/main.cpp
     src/Bridge.cpp
     src/IcloudMonitor.cpp
+    src/IcloudCategories.cpp
     src/IcloudService.cpp
     src/AutoStart.cpp
     src/Log.cpp
@@ -69,6 +70,7 @@ add_executable(iCloudMon WIN32
     # "无法解析的外部符号 staticMetaObject / qt_metacall ..."。
     inc/Bridge.h
     inc/IcloudMonitor.h
+    inc/IcloudCategories.h
     inc/IcloudService.h
     inc/IcloudSnapshot.h
     inc/AutoStart.h

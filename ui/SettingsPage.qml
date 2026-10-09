@@ -17,6 +17,17 @@ import QtQuick.Layouts 1.15
 Item {
     id: page
 
+    // 默认启动页下拉的模型: 首页 + 中间四类(按当前侧边栏顺序) + 设置。
+    // 顺序与侧边栏保持一致, 否则下拉里的顺序和实际导航对不上。
+    readonly property var pageModel: {
+        var m = [ { key: "home", name: "首页" } ]
+        var o = Bridge.navOrder
+        for (var i = 0; i < o.length; ++i)
+            m.push({ key: o[i], name: Bridge.categoryName(o[i]) })
+        m.push({ key: "settings", name: "设置" })
+        return m
+    }
+
     Flickable {
         id: body
         anchors.fill: parent
@@ -447,6 +458,282 @@ Item {
             }
 
             Rectangle { Layout.fillWidth: true; height: 1; color: Theme.border }
+
+            // ══════════════════════════════════════════════════
+            //  类别启用状态（手动指定）
+            // ══════════════════════════════════════════════════
+            Rectangle { Layout.fillWidth: true; height: 1; color: Theme.border }
+
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: 4
+
+                Label {
+                    text: "类别启用状态"
+                    color: Theme.textHi
+                    font.pixelSize: Theme.fsBody
+                    font.bold: true
+                }
+                Label {
+                    Layout.fillWidth: true
+                    text: "自动检测只对云盘和相册可靠；密码和书签检测不出来"
+                          + "（真正的开关存在被 iCloud 独占锁定的配置里）。"
+                          + "请在下面手动指定，点「自动」可恢复为自动检测。"
+                    color: Theme.textLo
+                    font.pixelSize: Theme.fsTiny
+                    wrapMode: Text.WordWrap
+                }
+
+                Repeater {
+                    model: Bridge.categories
+
+                    delegate: RowLayout {
+                        required property var modelData
+                        required property int index
+                        Layout.fillWidth: true
+                        spacing: Theme.sp
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 1
+                            Label {
+                                text: modelData.name
+                                      + (modelData.userSet ? "（手动指定）"
+                                                           : "（自动检测）")
+                                color: Theme.textHi
+                                font.pixelSize: Theme.fsSmall
+                                font.bold: true
+                            }
+                            Label {
+                                Layout.fillWidth: true
+                                text: "自动检测："
+                                      + (modelData.autoOn ? "已启用" : "未启用")
+                                      + " · " + modelData.autoWhy
+                                color: Theme.textLo
+                                font.pixelSize: Theme.fsTiny
+                                elide: Text.ElideRight
+                            }
+                        }
+
+                        Button {
+                            id: autoBtn
+                            text: "自动"
+                            enabled: modelData.userSet === true
+                            onClicked: Bridge.clearCategoryEnabled(modelData.key)
+                            ToolTip.visible: hovered
+                            ToolTip.text: "清除手动指定，回退到自动检测"
+                            ToolTip.delay: 600
+                            contentItem: Label {
+                                text: autoBtn.text
+                                color: autoBtn.enabled
+                                       ? (autoBtn.hovered ? Theme.info : Theme.textMid)
+                                       : Theme.textLo
+                                horizontalAlignment: Text.AlignHCenter
+                                verticalAlignment: Text.AlignVCenter
+                                font.pixelSize: Theme.fsSmall
+                            }
+                            background: Rectangle {
+                                implicitWidth: 48
+                                implicitHeight: 28
+                                radius: Theme.radius
+                                color: autoBtn.hovered ? Theme.bgHover : "transparent"
+                                border.color: autoBtn.enabled ? Theme.borderHi
+                                                              : Theme.border
+                            }
+                        }
+
+                        Switch {
+                            checked: modelData.enabled === true
+                            onToggled: Bridge.setCategoryEnabled(modelData.key,
+                                                                 checked)
+
+                            contentItem: Rectangle {
+                                implicitWidth: 42
+                                implicitHeight: 20
+                                radius: 10
+                                color: parent.checked ? Theme.ok : Theme.bgInput
+                                border.color: parent.checked ? Theme.ok
+                                                             : Theme.borderHi
+                                Behavior on color { ColorAnimation { duration: 160 } }
+
+                                Rectangle {
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    x: parent.checked ? parent.width - width - 2 : 2
+                                    width: 16; height: 16; radius: 8
+                                    color: "#ffffff"
+                                    Behavior on x {
+                                        NumberAnimation { duration: 160
+                                                          easing.type: Easing.OutCubic }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ══════════════════════════════════════════════════
+            //  侧边栏顺序
+            // ══════════════════════════════════════════════════
+            Rectangle { Layout.fillWidth: true; height: 1; color: Theme.border }
+
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: 4
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    Label {
+                        text: "侧边栏顺序"
+                        color: Theme.textHi
+                        font.pixelSize: Theme.fsBody
+                        font.bold: true
+                        Layout.fillWidth: true
+                    }
+                    Button {
+                        id: resetOrderBtn
+                        text: "恢复默认"
+                        onClicked: Bridge.resetNavOrder()
+                        contentItem: Label {
+                            text: resetOrderBtn.text
+                            color: resetOrderBtn.hovered ? Theme.info : Theme.textMid
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
+                            font.pixelSize: Theme.fsTiny
+                        }
+                        background: Rectangle {
+                            implicitWidth: 72
+                            implicitHeight: 24
+                            radius: Theme.radius
+                            color: resetOrderBtn.hovered ? Theme.bgHover : "transparent"
+                            border.color: Theme.borderHi
+                        }
+                    }
+                }
+
+                Label {
+                    Layout.fillWidth: true
+                    text: "首页固定在第一位、设置固定在最后一位，都不可调；"
+                          + "中间四类可用 ↑ ↓ 调整。"
+                    color: Theme.textLo
+                    font.pixelSize: Theme.fsTiny
+                    wrapMode: Text.WordWrap
+                }
+
+                Repeater {
+                    model: Bridge.navOrder
+
+                    delegate: RowLayout {
+                        required property string modelData
+                        required property int index
+                        Layout.fillWidth: true
+                        spacing: 6
+
+                        Label {
+                            text: (index + 1) + ".  " + Bridge.categoryName(modelData)
+                            color: Theme.textMid
+                            font.pixelSize: Theme.fsSmall
+                            Layout.fillWidth: true
+                        }
+
+                        Button {
+                            id: upBtn
+                            text: "↑"
+                            enabled: index > 0
+                            onClicked: Bridge.moveCategory(modelData, -1)
+                            ToolTip.visible: hovered
+                            ToolTip.text: "上移"
+                            ToolTip.delay: 600
+                            contentItem: Label {
+                                text: upBtn.text
+                                color: upBtn.enabled ? (upBtn.hovered ? Theme.info
+                                                                      : Theme.textMid)
+                                                     : Theme.textLo
+                                horizontalAlignment: Text.AlignHCenter
+                                verticalAlignment: Text.AlignVCenter
+                                font.pixelSize: Theme.fsSmall
+                            }
+                            background: Rectangle {
+                                implicitWidth: 30
+                                implicitHeight: 26
+                                radius: Theme.radius
+                                color: upBtn.hovered ? Theme.bgHover : "transparent"
+                                border.color: upBtn.enabled ? Theme.borderHi
+                                                            : Theme.border
+                            }
+                        }
+
+                        Button {
+                            id: downBtn
+                            text: "↓"
+                            enabled: index < Bridge.navOrder.length - 1
+                            onClicked: Bridge.moveCategory(modelData, 1)
+                            ToolTip.visible: hovered
+                            ToolTip.text: "下移"
+                            ToolTip.delay: 600
+                            contentItem: Label {
+                                text: downBtn.text
+                                color: downBtn.enabled ? (downBtn.hovered ? Theme.info
+                                                                          : Theme.textMid)
+                                                       : Theme.textLo
+                                horizontalAlignment: Text.AlignHCenter
+                                verticalAlignment: Text.AlignVCenter
+                                font.pixelSize: Theme.fsSmall
+                            }
+                            background: Rectangle {
+                                implicitWidth: 30
+                                implicitHeight: 26
+                                radius: Theme.radius
+                                color: downBtn.hovered ? Theme.bgHover : "transparent"
+                                border.color: downBtn.enabled ? Theme.borderHi
+                                                              : Theme.border
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ══════════════════════════════════════════════════
+            //  默认启动页
+            // ══════════════════════════════════════════════════
+            Rectangle { Layout.fillWidth: true; height: 1; color: Theme.border }
+
+            RowLayout {
+                Layout.fillWidth: true
+
+                ColumnLayout {
+                    spacing: 1
+                    Layout.fillWidth: true
+                    Label {
+                        text: "默认启动页"
+                        color: Theme.textHi
+                        font.pixelSize: Theme.fsBody
+                        font.bold: true
+                    }
+                    Label {
+                        text: "下次启动时打开哪一页"
+                        color: Theme.textLo
+                        font.pixelSize: Theme.fsSmall
+                        wrapMode: Text.WordWrap
+                        Layout.fillWidth: true
+                    }
+                }
+
+                ComboBox {
+                    id: defaultPageBox
+                    Layout.preferredWidth: 160
+                    model: page.pageModel
+                    textRole: "name"
+                    currentIndex: {
+                        var m = page.pageModel
+                        for (var i = 0; i < m.length; ++i)
+                            if (m[i].key === Bridge.defaultPage)
+                                return i
+                        return 0
+                    }
+                    onActivated: Bridge.defaultPage = page.pageModel[index].key
+                }
+            }
 
             // ══════════════════════════════════════════════════
             //  路径信息 (只读)

@@ -101,6 +101,48 @@ inline QString eventLog()
         "Microsoft-Windows-CloudFiles-Filter/Operational");
 }
 
+// ── 其余三类同步的数据源 ──────────────────────────────────────────
+// 云盘在 iCloudDrive.db(见上面 dbFile()), 相册/密码/书签各有各的库。
+
+// 书签: Chrome 书签同步库
+inline QString bookmarksDb()
+{
+    return packageDir()
+        + QStringLiteral("/LocalCache/Local/Apple Inc/ChromeBookmarks/ChromeBookmarks.db");
+}
+
+// 密码: 钥匙串库 (inet=网站密码 genp=通用密码 crec=证书)
+inline QString keychainDb()
+{
+    return packageDir()
+        + QStringLiteral("/LocalCache/Roaming/Apple Computer/Keychains/keychain-2.db");
+}
+
+// 相册: 媒体流库
+inline QString mediaStreamDb()
+{
+    return packageDir()
+        + QStringLiteral("/LocalCache/Roaming/Apple Computer/MediaStream/local.db");
+}
+
+// 相册: 本地缩略图目录
+inline QString photoLibraryDir()
+{
+    return packageDir()
+        + QStringLiteral("/LocalCache/Local/Apple Inc/iCloudPhotoLibrary");
+}
+
+// UWP 后台任务的注册表根键。各任务的 State: 2=启用 0=未启用。
+// ⚠ 实测只有云盘和相册与 iCloud 设置界面吻合; 密码/书签对不上, 详见
+// IcloudCategories.h 的说明 —— 只能当参考值。
+inline QString startupTaskRoot()
+{
+    return QStringLiteral(
+        "HKEY_CURRENT_USER\\Software\\Classes\\Local Settings\\Software\\"
+        "Microsoft\\Windows\\CurrentVersion\\AppModel\\SystemAppData\\"
+        "AppleInc.iCloud_nzyj5cx40ttqa");
+}
+
 // 状态历史 (卡死检测基线)
 inline QString stateFile()
 {

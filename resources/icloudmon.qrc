@@ -8,9 +8,10 @@
         <!-- 导航 -->
         <file alias="qml/NavIcon.qml">../ui/NavIcon.qml</file>
         <file alias="qml/NavItem.qml">../ui/NavItem.qml</file>
-        <!-- 页面 -->
-        <file alias="qml/OverviewPage.qml">../ui/OverviewPage.qml</file>
-        <file alias="qml/StatusPage.qml">../ui/StatusPage.qml</file>
+        <!-- 页面: 首页 / 云盘 / 相册 / 密码 / 书签 / 设置 -->
+        <file alias="qml/HomePage.qml">../ui/HomePage.qml</file>
+        <file alias="qml/DrivePage.qml">../ui/DrivePage.qml</file>
+        <file alias="qml/CategoryPage.qml">../ui/CategoryPage.qml</file>
         <file alias="qml/SettingsPage.qml">../ui/SettingsPage.qml</file>
         <!-- 复用组件 -->
         <file alias="qml/StatusCard.qml">../ui/StatusCard.qml</file>

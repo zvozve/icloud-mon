@@ -15,9 +15,37 @@ Windows 上 iCloud Drive（Store 版）的同步状态监控器。
 
 | 页面 | 回答的问题 | 内容 |
 |---|---|---|
-| **首页** | 现在到底什么状态？ | 异常横幅 + 状态卡 + 上传/下载/**删除** 三个队列 |
-| **状态** | 具体是哪些文件在等？ | 云端状态分布 + 待处理项明细 + **回收站**（可恢复） |
-| **设置** | 怎么配？ | 自启动、刷新间隔、卡死阈值、同步根目录、日志、系统通知 |
+| **首页** | 四类同步各自开着吗？ | 只有四张类别卡片（启用状态 + 摘要），不放任何细节 |
+| **云盘** | 云盘现在在干什么？ | 异常横幅 + 状态卡 + 上传/下载/删除三队列 + 云端分布 + 待处理项 + 回收站 |
+| **相册** | 相册有什么数据？ | 图库/Asset/缩略图实有数 + 启用状态来源 |
+| **密码** | 钥匙串里有多少？ | 网站密码/通用密码/密钥条数 + 启用状态来源 |
+| **书签** | 书签同步到哪了？ | 客户端/服务端/同步记录/待删记录数 + 启用状态来源 |
+| **设置** | 怎么配？ | 类别启用、侧边栏顺序、默认启动页、自启动、刷新间隔、卡死阈值、同步根目录、日志、系统通知 |
+
+侧边栏顺序：**首页固定最前、设置固定最后**（不可调），中间四类可用 ↑↓ 调整，
+顺序存进 `QSettings`（`HKCU\Software\zvozve\iCloudMon` 的 `nav/order`）。
+默认启动页同样持久化（`nav/defaultPage`），只在启动时取一次 ——
+不做成绑定，否则用户一改设置当前页就被拽走。
+
+### ⚠ 关键：四类的启用状态为什么必须手动指定
+
+iCloud 把每项服务的开关存在 `Settings/settings.dat` 里，那是 UWP 的设置
+hive，**被 iCloudHome 独占锁定**（复制和读取都失败，`Device or resource busy`），
+拿不到权威值。
+
+退而求其次试了注册表的 UWP 后台任务 `StartupTask\State`（2=启用 0=未启用），
+拿 iCloud 设置界面核对：
+
+| 类别 | StartupTask State | iCloud 界面 | 是否吻合 |
+|---|---|---|---|
+| 云盘 | 2 | On | ✅ |
+| 相册 | 0 | Off | ✅ |
+| 密码 | 0 | On | ❌ |
+| 书签 | 无此项 | On | ❌ |
+
+**只有云盘和相册吻合。** 所以本程序把自动检测结果当作**参考值**显示
+（页面上写明依据），最终生效值由用户在设置页手动指定，点「自动」可回退。
+宁可让用户设一次，也不显示一个错的「未启用」。
 
 ### 各区域明细
 
@@ -97,8 +125,9 @@ iCloudDrive.db-shm      ← 漏了这个 WAL 模式打不开
 ```
 icloud-mon/
 ├─ inc/            头文件
-│  ├─ IcloudPaths.h       所有路径与常量的唯一来源
+│  ├─ IcloudPaths.h       所有路径与常量的唯一来源（含四类各自的数据源）
 │  ├─ IcloudSnapshot.h    一次采样的完整数据快照
+│  ├─ IcloudCategories.h  四类同步（云盘/相册/密码/书签）状态读取
 │  ├─ IcloudMonitor.h     采样与状态机
 │  ├─ IcloudService.h     进程管理 / 重启 iCloud
 │  ├─ AutoStart.h         开机自启动（注册表）
@@ -107,14 +136,15 @@ icloud-mon/
 ├─ src/            实现，与 inc/ 一一对应
 ├─ ui/             QML 界面（全部平铺, 不分子目录 —— 见下方说明）
 │  ├─ Theme.qml          深色主题单例（pragma Singleton）
-│  ├─ Main.qml           外壳: 左侧导航 + 命令栏 + 页面容器
+│  ├─ Main.qml           外壳: 左侧导航(6 页) + 命令栏 + StackLayout
 │  ├─ NavIcon.qml        导航图标（图元绘制, 不依赖图标字体）
 │  ├─ NavItem.qml        导航项（选中指示条 / 折叠态 / ToolTip）
-│  ├─ OverviewPage.qml   首页: 异常横幅 + 状态卡 + 上传下载队列
-│  ├─ StatusPage.qml     状态: 云端分布 + 待处理项明细
+│  ├─ HomePage.qml       首页: 四类同步卡片
+│  ├─ DrivePage.qml      云盘: 横幅 + 状态卡 + 三队列 + 分布 + 待处理 + 回收站
+│  ├─ CategoryPage.qml   相册/密码/书签通用详情页（数据驱动, 不写死类别）
 │  ├─ SettingsPage.qml   设置（独立页面）
 │  ├─ StatusCard.qml     状态卡
-│  ├─ QueuePanel.qml     上传 / 下载面板
+│  ├─ QueuePanel.qml     上传 / 下载 / 删除 队列面板
 │  ├─ PcsPanel.qml       云端分布
 │  └─ AlertBanner.qml    异常告警
 ├─ resources/      Qt 资源（qml 打包进 exe + qmldir）

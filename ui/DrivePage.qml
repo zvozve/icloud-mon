@@ -1,10 +1,14 @@
 // ======================================================================
-//  StatusPage.qml  -  状态页（详情）
+//  DrivePage.qml  -  云盘页
 //
-//  回答一个问题: 具体是哪些文件在等?
-//    - 云端状态分布 (server_items.pcs_state)
-//    - 待处理项明细: 本地未提交项(卡死源头) + 云端待处理项
-//  「现在什么状态」放首页。
+//  云盘的全部细节都在这:
+//    异常横幅 + 状态卡 + 上传/下载/删除 三队列
+//    + 云端分布 + 待处理项 + 回收站
+//  (原来拆在"概览"和"状态"两页, 现在都归属云盘)
+//
+//  所有子项都给**固定高度**, 不用 Layout.fillHeight —— 在 Flickable 里
+//  填高没有意义(没有剩余空间可分), 而且子项是 Rectangle 时没有
+//  implicitHeight, 会直接塌成 0 高并重叠。
 // ======================================================================
 import QtQuick 2.15
 import QtQuick.Controls 2.15
@@ -13,19 +17,11 @@ import QtQuick.Layouts 1.15
 Item {
     id: page
 
-    // 用 Flickable 而不是直接 anchors.fill + ColumnLayout:
-    // 窗口变矮时内容能被滚动到, 而不是被裁掉。
-    // 注意: 里面的 ColumnLayout 必须拿到**确定高度**(height: body.innerHeight),
-    // 否则它没有"剩余空间"可分, 内部的 Layout.fillHeight 会全部失效 ——
-    // 子项是 Rectangle 时没有 implicitHeight, 会直接塌成 0 高并重叠。
     Flickable {
         id: body
         anchors.fill: parent
-        anchors.margins: Theme.spL
         contentWidth: width
-        readonly property real innerHeight:
-            Math.max(height, col.implicitHeight + Theme.sp)
-        contentHeight: innerHeight
+        contentHeight: Math.max(height, col.implicitHeight + Theme.spL * 2)
         clip: true
         boundsBehavior: Flickable.StopAtBounds
 
@@ -36,9 +32,79 @@ Item {
 
         ColumnLayout {
             id: col
-            width: body.width
-            height: body.innerHeight
+            width: body.width - Theme.spL * 2
+            x: Theme.spL
+            y: Theme.spL
             spacing: Theme.sp
+
+            // ── 异常横幅 ──
+            AlertBanner {
+                Layout.fillWidth: true
+                visible: Bridge.anomalous
+                Layout.preferredHeight: visible ? implicitHeight : 0
+                Behavior on Layout.preferredHeight {
+                    NumberAnimation { duration: 180; easing.type: Easing.OutCubic }
+                }
+            }
+
+            // ── 状态卡 ──
+            StatusCard {
+                Layout.fillWidth: true
+            }
+
+            // ── 上传 / 下载 / 删除 三个队列 ──
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 200
+                spacing: Theme.sp
+
+                QueuePanel {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    title: "上传"
+                    accent: Theme.up
+                    done: Bridge.upDone
+                    total: Bridge.upTotal
+                    pendingCount: Bridge.upCount
+                    pendingSize: Bridge.upSize
+                    busy: Bridge.upBusy
+                    icon: "↑"
+                }
+
+                QueuePanel {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    title: "下载"
+                    accent: Theme.down
+                    done: Bridge.dlDone
+                    total: Bridge.dlTotal
+                    pendingCount: Bridge.dlCount
+                    pendingSize: Bridge.dlSize
+                    extraText: Bridge.dlPending > 0
+                                ? ("取回队列 " + Bridge.dlPending + " 条") : ""
+                    busy: Bridge.dlBusy
+                    icon: "↓"
+                }
+
+                // 删除: 待删除 = needs_delete_doc_count;
+                // "已完成"侧用回收站项数对应(表里没有 deleted_count)。
+                // 删除没有字节数概念, pendingSize 传空串 -> 那一栏自动隐藏。
+                QueuePanel {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    title: "删除"
+                    accent: Theme.err
+                    done: Bridge.delDone
+                    total: Bridge.delTotal
+                    pendingCount: Bridge.delCount
+                    pendingSize: ""
+                    countLabel: "待删除"
+                    extraText: Bridge.delDone > 0
+                                ? ("回收站 " + Bridge.delDone + " 项") : ""
+                    busy: Bridge.delBusy
+                    icon: "⌫"
+                }
+            }
 
             // ── 云端状态分布 ──
             PcsPanel {
@@ -49,7 +115,6 @@ Item {
             // ── 待处理项明细 ──
             Rectangle {
                 Layout.fillWidth: true
-                Layout.fillHeight: true
                 Layout.preferredHeight: 360
                 color: Theme.bgPanel
                 radius: Theme.radius
@@ -95,8 +160,7 @@ Item {
                         delegate: Rectangle {
                             required property string name
                             required property string stateText
-                            // 这个 delegate 属于 Repeater, 不是 ListView ——
-                            // 写 ListView.view.width 会取到 null。
+                            // 这个 delegate 属于 Repeater, 不是 ListView;
                             // 父级是 ColumnLayout, 宽度交给 Layout 管理。
                             Layout.fillWidth: true
                             height: 26
@@ -188,7 +252,6 @@ Item {
                         }
                     }
 
-                    // ── 空状态 ──
                     Label {
                         Layout.alignment: Qt.AlignHCenter
                         Layout.topMargin: 20
@@ -202,9 +265,7 @@ Item {
                 }
             }
 
-            // ── 回收站 (删除队列的另一面) ──
-            // local_items.item_restore_path 非空的项 = 已删除但可恢复,
-            // 且记录了原始路径。这是删除维度上唯一有明细可看的真实数据。
+            // ── 回收站(删除队列的另一面) ──
             Rectangle {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 240
@@ -264,7 +325,8 @@ Item {
                                     Layout.fillWidth: true
                                 }
                                 Label {
-                                    // 原始路径: 说明这项原来在哪, 便于判断要不要恢复
+                                    // 原始路径: 光看名字认不出是什么,
+                                    // 原路径才能判断该不该恢复
                                     text: "原位于 " + restorePath
                                     color: Theme.textLo
                                     font.pixelSize: Theme.fsTiny
@@ -290,6 +352,8 @@ Item {
                     }
                 }
             }
+
+            Item { Layout.preferredHeight: Theme.sp }
         }
     }
 }
