@@ -11,9 +11,12 @@
 #include <QGuiApplication>
 #include <QHash>
 #include <QIcon>
+#include <QOpenGLContext>
+#include <QOpenGLFunctions>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQuickStyle>
+#include <QQuickWindow>
 #include <QSqlDatabase>
 #include <QSqlError>
 #include <QSqlQuery>
@@ -129,6 +132,47 @@ bool preloadSqliteDriver(QString *err)
     return true;
 }
 
+// 记录实际使用的图形后端。
+//
+// 拖动窗口卡顿的头号原因就是退化到**软件渲染**(opengl32sw / llvmpipe /
+// SwiftShader) —— 那是 CPU 逐像素画, 1080p 下拖动必然卡。
+// 这一点从进程外部看不出来(该 DLL 装载了不代表在用), 必须把 GL 的
+// renderer 字符串打出来才算有证据:
+//   renderer 含 "llvmpipe" / "SwiftShader" / "GDI Generic"  => 软件渲染
+//   renderer 是 Intel/NVIDIA/AMD/Radeon 或 "ANGLE (..., Direct3D11)" => 硬件
+void logGraphicsBackend(QQmlApplicationEngine &engine)
+{
+    if (engine.rootObjects().isEmpty())
+        return;
+    auto *win = qobject_cast<QQuickWindow *>(engine.rootObjects().constFirst());
+    if (!win)
+        return;
+
+    QObject::connect(win, &QQuickWindow::sceneGraphInitialized, win, []() {        QOpenGLContext *ctx = QOpenGLContext::currentContext();
+        if (!ctx) {
+            icloud::log::warn(QStringLiteral(
+                "[GPU] 无当前 OpenGL 上下文 (可能不是 OpenGL 后端)"));
+            return;
+        }
+        QOpenGLFunctions *f = ctx->functions();
+        auto glStr = [f](GLenum name) -> QString {
+            const GLubyte *s = f->glGetString(name);
+            return s ? QString::fromLatin1(reinterpret_cast<const char *>(s))
+                     : QStringLiteral("?");
+        };
+        icloud::log::info(QStringLiteral("[GPU] vendor=%1")
+                              .arg(glStr(GL_VENDOR)));
+        icloud::log::info(QStringLiteral("[GPU] renderer=%1")
+                              .arg(glStr(GL_RENDERER)));
+        icloud::log::info(QStringLiteral("[GPU] version=%1")
+                              .arg(glStr(GL_VERSION)));
+    });
+    // 挂载成功不代表会触发 —— 只有窗口真正渲染时才会发 sceneGraphInitialized。
+    // 所以"有这行、没有下面的 renderer 行" = 窗口在本会话里从未渲染过
+    // (无交互桌面/会话隔离), 而不是探针没装上。这条能把两种情况分开。
+    icloud::log::info(QStringLiteral("[GPU] 图形后端探针已挂载, 等待首次渲染"));
+}
+
 }  // namespace
 
 int main(int argc, char *argv[])
@@ -187,6 +231,9 @@ int main(int argc, char *argv[])
         icloud::log::shutdown();
         return 1;
     }
+
+    // 图形后端信息: 只有它出现后才能确定是不是软件渲染
+    logGraphicsBackend(engine);
 
     icloud::log::info(QStringLiteral("[RUN] 界面加载完成, 进入事件循环"));
     const int rc = app.exec();

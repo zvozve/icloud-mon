@@ -13,24 +13,17 @@ Rectangle {
     radius: Theme.radius
     border.width: 1
 
-    // Rectangle 没有 borderColor 这个属性, 边框在 border.color 分组里,
-    // 而分组属性不能直接挂 Behavior/Animation。
-    // 办法: 起一个中介色, 动画它, 再喂给 border.color。
-    property color edgeColor: Theme.border
-    border.color: Bridge.anomalous ? edgeColor : Theme.border
+    // 异常时边框转红。原来是"动画中介色 + 无限呼吸", 现在直接静态赋色。
+    border.color: Bridge.anomalous ? Theme.err : Theme.border
 
-    // 异常时边框呼吸, 不用闪, 减少视觉噪音。
+    // 这里原来是一个 loops: Animation.Infinite 的边框呼吸动画,
+    // running 绑定 Bridge.anomalous。
     //
-    // 说明: Animation 类没有 when 属性(只有 running/paused/loops),
-    // 之前我按 when 写过一版是错的, 已在日志里报
-    // "Cannot assign to non-existent property when"。
-    // running 绑定本来就是标准写法, 保持原样。
-    SequentialAnimation on edgeColor {
-        running: Bridge.anomalous
-        loops: Animation.Infinite
-        ColorAnimation { to: Theme.err; duration: 900 }
-        ColorAnimation { to: Theme.border; duration: 900 }
-    }
+    // 已删除。原因: 卡死是**持续状态**(实测本机停滞已超 800 秒),
+    // 也就是 anomalous 长期为 true, 这个无限动画就等于让整个窗口
+    // 无休止地按 60fps 重绘 —— 拖动窗口必然卡顿。
+    // 异常已经有顶部红色横幅明确表达, 边框静态变红即可,
+    // 不靠动画传递信息, 也不丢任何信息量。
 
     RowLayout {
         anchors.fill: parent

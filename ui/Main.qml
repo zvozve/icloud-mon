@@ -240,21 +240,29 @@ ApplicationWindow {
         anchors.fill: parent
         anchors.margins: Theme.spL
         contentWidth: width
-        // 内容高由 bodyLayout 的 implicitHeight 决定, 不足一屏时正好等于
-        // 可见高度, 也就不会出现多余滚动条
-        contentHeight: Math.max(height, bodyLayout.implicitHeight + Theme.spL)
+        // 内容高度: 不足一屏时取可见高度(不出现多余滚动条), 超出则可滚动。
+        //
+        // ★ 关键: 必须把这个高度**真正赋给下面的 ColumnLayout**。
+        // 只给宽不给高的列布局没有"剩余空间"可分, 里面的
+        // Layout.fillHeight 全部失效 —— 而 PcsPanel / 待处理项 都是
+        // Rectangle + anchors.fill 的子项, Rectangle 不会从子项推导
+        // implicitHeight, 结果就是底部整行塌成 0 高、内容溢出重叠。
+        readonly property real innerHeight:
+            Math.max(height, bodyLayout.implicitHeight + Theme.sp)
+        contentHeight: innerHeight
         clip: true
         boundsBehavior: Flickable.StopAtBounds
 
         // 只在需要时才显示滚动条, 且不一直占位导致内容宽度跳动
         ScrollBar.vertical: ScrollBar {
-            policy: body.contentHeight > body.height ? ScrollBar.AsNeeded
-                                                      : ScrollBar.AlwaysOff
+            policy: body.contentHeight > body.height + 1 ? ScrollBar.AsNeeded
+                                                        : ScrollBar.AlwaysOff
         }
 
         ColumnLayout {
             id: bodyLayout
-            width: body.width      // 横向铺满, 纵向由 implicitHeight 撑开
+            width: body.width
+            height: body.innerHeight   // 给了确定高度, fillHeight 才有意义
             spacing: Theme.sp
 
         // ── 异常横幅 ──
@@ -312,6 +320,12 @@ ApplicationWindow {
         // ── 云端分布 + 待处理项 ──
         RowLayout {
             Layout.fillWidth: true
+            // 必须给一个具体高度: 子项是 Rectangle + anchors.fill,
+            // Rectangle 没有 implicitHeight, 整行算不出内容高度,
+            // 后果是 ColumnLayout.implicitHeight 偏小 -> 滚动高度算不出来,
+            // 且 fillHeight 没东西可分 -> 整行塌陷重叠。
+            // fillHeight 保留: 窗口拉高时这一行还能跟着长。
+            Layout.preferredHeight: 300
             Layout.fillHeight: true
             spacing: Theme.sp
 
@@ -491,14 +505,19 @@ ApplicationWindow {
         anchors.right: parent.right
         anchors.bottom: parent.bottom
         anchors.margins: Theme.spL
-        // 尺寸取内部 RowLayout 的隐含尺寸。
-        // 原写法用的是 Rectangle 自己的 implicitWidth —— 但 Rectangle 不会
-        // 从子项推导 implicit 尺寸, 那个值是 0, toast 实际只有 32px 宽。
-        // 这里改用 layout 的隐含尺寸, 这才是真正随文本变化的量。
-        width: toastText.length > 0
-               ? Math.min(420, toastRow.implicitWidth + Theme.spL * 2) : 0
-        height: toastText.length > 0
-                ? toastRow.implicitHeight + Theme.sp * 2 : 0
+
+        // 宽度用**固定值**, 不要去测量内部 RowLayout 的 implicitWidth。
+        // 这里踩过一个绑定循环: toastRow 是 anchors.fill: parent,
+        // 它的宽度来自 toast.width; 而 RowLayout 内含 wrapMode 的 Label,
+        // 其 implicitWidth 又依赖被分配的宽度 -> toast.width 与
+        // toastRow.implicitWidth 互相引用, 运行时直接报
+        // "QML Rectangle: Binding loop detected for property width"。
+        // 固定宽度后, 文本在该宽度内换行, 高度由内容决定, 无循环。
+        readonly property int toastW: 360
+        width: toastText.length > 0 ? toastW : 0
+        // 高度 = 内容高 + 上下各 Theme.sp(与 toastRow 的 anchors.margins 对应),
+        // 少给一份会把文字挤掉 8px
+        height: toastText.length > 0 ? toastRow.implicitHeight + Theme.sp * 2 : 0
         visible: opacity > 0
         opacity: toastText.length > 0 ? 1 : 0
         color: Theme.bgCard
@@ -511,12 +530,8 @@ ApplicationWindow {
 
         Behavior on opacity { NumberAnimation { duration: 200 } }
         // Behavior 没有 when 属性(只有 enabled), 之前写成 when 是错的。
-        // 平时 toast 不可见, 关掉 width 动画的参与, 避免布局抖动时
-        // 反复启动动画又反过来触发布局与重绘。
+        // 平时 toast 不可见, 关掉 width 动画的参与。
         Behavior on width {
-            // toastText 是 win 的属性, 不是 toast 自己的 ——
-            // 写成 toast.toastText 会取到 undefined, 报
-            // "Cannot read property 'length' of undefined"。
             enabled: win.toastText.length > 0
             NumberAnimation { duration: 180 }
         }

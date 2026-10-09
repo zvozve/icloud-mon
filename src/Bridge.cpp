@@ -255,15 +255,26 @@ void Bridge::onStateChanged(const icloud::Snapshot &s)
 void Bridge::onAnomaly(const QString &kind, const QString &title,
                        const QString &detail)
 {
+    // 注意: 卡死这类异常会**每采样一次上报一次**(每 5 秒), 不是只在
+    // 出现的那一次上报。所以这里的 flag 必须在赋值前先取, 判断"是不是新异常"。
+    const bool wasAnomalous = m_anomalous;
+    const bool isNewKind = !m_anomalyList.contains(kind);
+
     m_anomalous = true;
     m_anomalyTitle = title;
     m_anomalyDetail = detail;
-    if (!m_anomalyList.contains(kind))
+    if (isNewKind)
         m_anomalyList.append(kind);
-    emit anomalyChanged();
-    emit notify(kind == QStringLiteral("卡死") ? QStringLiteral("error")
-                                               : QStringLiteral("warn"),
-                QStringLiteral("[%1] %2").arg(kind, title));
+    emit anomalyChanged();      // 明细(停滞秒数等)要跟着刷新, 每次都发
+
+    // 但弹窗只在新出现 / 换了异常种类时给。
+    // 每次都弹的话, 持续卡死状态下 Toast 动画会被每 5 秒重启一次,
+    // 既是持续打扰, 也让界面反复重绘。
+    if (!wasAnomalous || isNewKind) {
+        emit notify(kind == QStringLiteral("卡死") ? QStringLiteral("error")
+                                                   : QStringLiteral("warn"),
+                    QStringLiteral("[%1] %2").arg(kind, title));
+    }
 }
 
 void Bridge::onAnomalyCleared()
