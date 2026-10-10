@@ -97,9 +97,18 @@ Item {
                     id: autoStartSwitch
                     checked: Bridge.autoStart
                     onToggled: {
-                        // 后端写注册表可能失败(如权限), 失败时回滚 UI
+                        // 后端写注册表可能失败(如权限), 失败时需要回滚 UI。
+                        //
+                        // ★ 但**不能写 `checked = Bridge.autoStart`**:
+                        //   那是对绑定属性的 JS 赋值, 会把上面
+                        //   `checked: Bridge.autoStart` 这个绑定删除掉,
+                        //   之后开关就永远停在最后一次手动拨到的值,
+                        //   不再跟随真实状态(注册表被外部改动也感知不到)。
+                        //   QML 规则: C++ 内部写属性不移除绑定, JS 赋值会。
+                        //   正确做法: 调后端, 由后端在失败时 emit
+                        //   autoStartChanged 把真值推回来, 绑定自然复位。
                         if (!Bridge.setAutoStart(checked))
-                            checked = Bridge.autoStart
+                            console.warn("[Settings] 开机自启动设置失败, 等待后端回推真值")
                     }
                 }
             }

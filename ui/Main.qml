@@ -324,16 +324,30 @@ ApplicationWindow {
 
                         AppSwitch {
                             id: icloudSwitch
-                            // 开关状态完全由后端进程事实驱动:
-                            // 用户点击 -> 调 restart 而不是直接改 checked
+                            // ★ 开关状态完全由后端进程事实驱动。
+                            //   **不要在这里写 `checked = ...`** ——
+                            //   那是对绑定属性的 JS 赋值, 会把 `checked:
+                            //   Bridge.icloudRunning` 这个绑定**删除掉**
+                            //   (QML 规则: C++ 内部写属性不移除绑定, JS 赋值会)。
+                            //   绑定一旦被删, checked 就永久停在用户最后拨到的
+                            //   值, 不再跟随真实进程状态 —— 实测出现过
+                            //   文字显示"iCloud 已停止"而开关仍停在"打开"。
+                            //   正确做法: 只声明绑定, 点击时调后端动作,
+                            //   让 onProcTimer 通过 icloudStateChanged 推回来。
                             checked: Bridge.icloudRunning
                             enabled: !Bridge.busyRestarting
                             onToggled: {
-                                if (checked !== Bridge.icloudRunning) {
-                                    Bridge.restartIcloud()
-                                    checked = Bridge.icloudRunning
-                                }
+                                // 开关真的做"启停": 关->起 iCloud, 开->停 iCloud。
+                                // 之前无论拨到哪边都是 restartIcloud(), 与旁边的
+                                // "重启"按钮功能完全重复, 是个会误导人的假开关。
+                                if (checked) Bridge.startIcloud()
+                                else         Bridge.stopIcloud()
                             }
+                            ToolTip.visible: hovered
+                            ToolTip.text: Bridge.icloudRunning
+                                          ? "点一下停止 iCloud"
+                                          : "点一下启动 iCloud"
+                            ToolTip.delay: 500
                         }
 
                         AppButton {

@@ -126,6 +126,12 @@ void Bridge::onProcTimer()
                                : m_procList.join(QLatin1Char(','))));
         emit icloudStateChanged();
     }
+    // ★ 这里"只在状态变化时 emit"是**正确**的, 不用改。
+    //   实测出现过的"文字说已停止、开关却停在打开"不是这里的问题, 而是
+    //   QML 侧写了 `checked = Bridge.icloudRunning` —— 那是 JS 赋值,
+    //   会把 `checked: Bridge.icloudRunning` 绑定整个删除(绑定被删后
+    //   checked 永远停在用户最后拨到的值, 不再跟随真实状态)。
+    //   Main.qml 里已去掉那行赋值。
 }
 
 // ── 自启动 ────────────────────────────────────────────────────────
@@ -142,6 +148,13 @@ bool Bridge::setAutoStart(bool on)
                         QStringLiteral("失败: %1").arg(err));
         emit notify(QStringLiteral("error"),
                     QStringLiteral("设置自启动失败: %1").arg(err));
+        // ★ 必须把**真实值**再推一次。设置页的开关是
+        //   `checked: Bridge.autoStart` 单向绑定, 失败时 UI 已经被用户
+        //   拨动过了; 这里 emit autoStartChanged 让绑定把 checked 拉回
+        //   真实状态, 完成回滚。
+        //   (不能用 QML 侧 `checked = Bridge.autoStart` 回滚 —— 那是 JS
+        //    赋值, 会把绑定删掉, 之后开关再也不跟随真实状态。)
+        emit autoStartChanged();
         return false;
     }
     log::userAction(QStringLiteral("设置开机自启动=%1").arg(int(on)),

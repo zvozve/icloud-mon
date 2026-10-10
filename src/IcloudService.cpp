@@ -4,6 +4,7 @@
 #include <tlhelp32.h>
 
 #include "IcloudService.h"
+#include "Log.h"
 
 #include <QDir>
 #include <QEventLoop>
@@ -44,8 +45,18 @@ QStringList IcloudService::runningProcesses() const
         want.insert(n.toLower(), n);
 
     HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-    if (snap == INVALID_HANDLE_VALUE)
+    if (snap == INVALID_HANDLE_VALUE) {
+        // ★ 必须记一条。快照失败时下面直接 return 空列表, 上层
+        //   Bridge::onProcTimer 会把它当成"iCloud 已停止" —— 于是界面
+        //   显示"已停止"而 iCloud 其实在跑。实测遇到过这种不一致,
+        //   没有日志就完全无从判断是探测失败还是真停了。
+        //   GetLastError 的常见值: ERROR_ACCESS_DENIED(5) 权限不足、
+        //   ERROR_INSUFFICIENT_BUFFER(145) 进程数过多。
+        log::warn(QStringLiteral("[RUN] 进程快照失败 GetLastError=%1"
+                                 "(非 0 表示探测失败, 此时界面状态不可信)")
+                      .arg(int(GetLastError())));
         return found;
+    }
 
     PROCESSENTRY32W pe;
     ZeroMemory(&pe, sizeof(pe));
