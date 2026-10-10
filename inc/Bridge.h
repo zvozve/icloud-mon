@@ -392,9 +392,22 @@ public:
 
     int     upDone() const;
     int     upTotal() const;
-    int     upCount() const { return m_snap.queue.needUpCount; }
+    // 待上传数。
+    // ★不能只读 item_recursive_properties.needs_upload_count —— 实测该计数
+    //   在本机长期为 0/滞后(上传文件时面板纹丝不动), 不可作为实时信号。
+    //   真正实时的是 local_items 里"有本地未提交改动"的项(用户刚存盘的文件
+    //   立刻出现在那里)。两者取较大值: 哪个先动都算数, 又不会重复计数。
+    int     upCount() const
+    {
+        int n = m_snap.queue.needUpCount;
+        int localUp = 0;
+        for (const LocalPending &p : m_snap.localPendings)
+            if (p.syncUpState || p.inFlight || p.hasDiff)
+                ++localUp;
+        return qMax(n, localUp);
+    }
     QString upSize() const;
-    bool    upBusy() const { return m_snap.queue.needUpCount > 0; }
+    bool    upBusy() const { return upCount() > 0; }
 
     int     dlDone() const;
     int     dlTotal() const;

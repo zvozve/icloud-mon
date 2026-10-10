@@ -397,10 +397,21 @@ int main(int argc, char *argv[])
     // qputenv 必须在 QGuiApplication 构造**之前**(QT_OPENGL 在创建第一个 GL
     // 上下文时被读取)。用户已用 QT_OPENGL/QT_QUICK_BACKEND 指定过时一律尊重,
     // 不强加, 方便个别机器仍想试别的后端。
+    // ★ 图形后端: **默认软件渲染**。
+    //
+    // 实测本机两条 GPU 路线都不可用(日志 + 截图证据):
+    //   · 桌面 OpenGL: 场景图 5 秒未初始化 → 白屏 + 窗口只在任务栏预览;
+    //   · ANGLE(D3D11): 能出画面, 但数据刷新时出现**彩色花屏**(GPU 伪影)。
+    // 而本程序是低动态监控界面(静态文字 + 5s 轮询刷新, 无持续动画),
+    // **正确性远比流畅度重要** —— 花屏/白屏是不可用的, 掉几帧无所谓。
+    // 所以默认走软件渲染(QT_QUICK_BACKEND=software), 该路径经全页面截图验证无伪影。
+    //
+    // 用户若确认自己机器 GPU 正常, 想换回硬件加速, 设以下任一环境变量即可覆盖:
+    //   · QT_QUICK_BACKEND=opengl   (或 desktop)
+    //   · QT_OPENGL=desktop|angle
     if (qEnvironmentVariableIsEmpty("QT_OPENGL")
         && qEnvironmentVariableIsEmpty("QT_QUICK_BACKEND")) {
-        qputenv("QT_OPENGL", "angle");
-        qputenv("QT_ANGLE_PLATFORM", "d3d11");   // 显式 D3D11, 避免落到不稳定的 GL-on-ANGLE
+        qputenv("QT_QUICK_BACKEND", "software");
     }
 
     QGuiApplication app(argc, argv);
