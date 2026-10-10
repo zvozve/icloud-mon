@@ -586,6 +586,27 @@ void Bridge::moveCategory(const QString &key, int delta)
     emit navOrderChanged();
 }
 
+void Bridge::moveCategoryTo(const QString &key, int toIndex)
+{
+    const int from = m_navOrder.indexOf(key);
+    if (from < 0)
+        return;
+    if (toIndex < 0 || toIndex >= m_navOrder.size())
+        return;
+    if (from == toIndex)
+        return;
+
+    // ★ 注意 m_navOrder 只含**中间四类**(首页/设置是固定的, 不在里面),
+    //   所以这里的下标就是四类自己的序号, 与设置页列表的行号一致。
+    //   拖拽时拿 ListView 的目标行号直接传进来即可, 边界判断在这里做。
+    m_navOrder.move(from, toIndex);
+    saveNavOrder();
+    log::userAction(QStringLiteral("%1 从第 %2 位拖到第 %3 位")
+                        .arg(categoryName(key))
+                        .arg(from + 1).arg(toIndex + 1));
+    emit navOrderChanged();
+}
+
 void Bridge::resetNavOrder()
 {
     m_navOrder = categoryKeys();

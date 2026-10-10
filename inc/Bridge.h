@@ -377,6 +377,10 @@ public:
     // 首页固定最前、设置固定最后, 中间四类可调序。
     Q_PROPERTY(QStringList navOrder READ navOrder NOTIFY navOrderChanged)
     Q_INVOKABLE void moveCategory(const QString &key, int delta);
+    // 拖拽排序: 把 key 移到 toIndex 位置(供 ListView 拖放调用)。
+    // 与 moveCategory 的区别: 后者是"上移/下移一格", 这个是"移到指定位",
+    // 拖动一次可能跨多项。
+    Q_INVOKABLE void moveCategoryTo(const QString &key, int toIndex);
     Q_INVOKABLE void resetNavOrder();
     // 显示名(供顺序设置界面显示"云盘"而不是"drive")
     Q_INVOKABLE QString categoryName(const QString &key) const;

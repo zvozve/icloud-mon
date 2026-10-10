@@ -53,12 +53,18 @@ ComboBox {
     }
 
     // 下拉列表里每一项。
-    // ★ 这里刻意**不写 required property**: ComboBox 的 popup 用的是内部的
+    //
+    // ★ 现在本控件的 model 是**字符串数组**(如 ["首页","云盘","设置"]),
+    //   所以直接显示 modelData 即可。
+    //   之前这里写 `model[control.textRole]`, 那是配合对象数组
+    //   ({key,name} + textRole:"name") 的写法 —— 但 ComboBox 的
+    //   displayText/delegateModel 是在 C++ 侧读 model, 取不到 JS 对象的
+    //   name 字段, 导致关闭态与展开列表都显示错误。现在统一用字符串数组,
+    //   这种取值方式就消失了。
+    //
+    // ★ 仍不写 required property: ComboBox 的 popup 用内部的
     //   ComboBoxDelegateModel(model = control.delegateModel), 它不像
-    //   ListView/Repeater 那样把 modelData 作为必填角色注入。若声明
-    //   required property var modelData, 展开下拉的瞬间才会发现拿不到值
-    //   而报 QML 错。Qt 自带 ComboBox 的默认 delegate 用的就是隐式
-    //   model[control.textRole] + 隐式 index, 这里照抄那个稳妥写法。
+    //   ListView/Repeater 那样把 modelData 作为必填角色注入。
     delegate: ItemDelegate {
         id: row
         width: control.width
@@ -66,9 +72,7 @@ ComboBox {
         highlighted: control.highlightedIndex === index
 
         contentItem: Text {
-            text: model[control.textRole] !== undefined
-                  ? model[control.textRole]
-                  : String(model)
+            text: modelData
             color: Theme.textMid
             font.pixelSize: Theme.fsSmall
             verticalAlignment: Text.AlignVCenter

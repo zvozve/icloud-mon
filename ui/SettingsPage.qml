@@ -21,17 +21,42 @@ Item {
     // + 设置。顺序与侧边栏保持一致, 否则下拉里的顺序和实际导航对不上;
     // 未启用的类别在侧边栏已隐藏, 这里也不再列为可选启动页。
     readonly property var pageModel: {
+        // ★ 必须返回**字符串数组**(页面名), 不能是 {key,name} 对象数组。
+        //
+        //   原来返回 [{key:"home",name:"首页"}, ...] 并配合 textRole:"name"。
+        //   但 ComboBox 的 displayText 是在 **C++ 侧**读的 model —— 对 QML
+        //   的 JS 数组, 它取不到对象的 "name" 字段, 于是关闭态显示的是
+        //   错的文字(实测显示"云盘"但那一项与实际选择对不上)。
+        //   字符串数组是 ComboBox 的原生 model 类型, 显示绝对正确;
+        //   需要 key 时用 pageKeys(下标一一对应)。
         var cats = Bridge.categories
-        var m = [ { key: "home", name: "首页" } ]
+        var m = [ "首页" ]
         var o = Bridge.navOrder
         for (var i = 0; i < o.length; ++i) {
             var enabled = true
             for (var j = 0; j < cats.length; ++j)
                 if (cats[j].key === o[i]) { enabled = cats[j].enabled === true; break }
-            if (enabled) m.push({ key: o[i], name: Bridge.categoryName(o[i]) })
+            // 只列**已启用**的类别: 未启用的在侧边栏和主页都隐藏了,
+            // 这里列出来会让用户选到一个打不开的页面。
+            if (enabled) m.push(Bridge.categoryName(o[i]))
         }
-        m.push({ key: "settings", name: "设置" })
+        m.push("设置")
         return m
+    }
+
+    // 与 pageModel 下标一一对应的 key 数组(首页固定在 0, 设置固定在末尾)
+    readonly property var pageKeys: {
+        var cats = Bridge.categories
+        var k = [ "home" ]
+        var o = Bridge.navOrder
+        for (var i = 0; i < o.length; ++i) {
+            var enabled = true
+            for (var j = 0; j < cats.length; ++j)
+                if (cats[j].key === o[i]) { enabled = cats[j].enabled === true; break }
+            if (enabled) k.push(o[i])
+        }
+        k.push("settings")
+        return k
     }
 
     Flickable {
@@ -458,52 +483,149 @@ Item {
                 Label {
                     Layout.fillWidth: true
                     text: "首页固定在第一位、设置固定在最后一位，都不可调；"
-                          + "中间四类可用 ↑ ↓ 调整。"
+                          + "中间四类按住行上下拖动即可排序，也可用 ↑ ↓ 精确移动。"
                     color: Theme.textLo
                     font.pixelSize: Theme.fsTiny
                     wrapMode: Text.WordWrap
                 }
 
-                Repeater {
+                // ── 拖拽排序列表 ──
+                //
+                // 用 ListView 而非 Repeater: 拖拽需要 ListView 提供
+                // itemAt(y)/indexAt(y) 来判断"拖到了哪一行"。
+                //
+                // 交互: 按住整行上下拖动松手即排序(主方式),
+                //       右侧 ↑↓ 保留为精确的单步移动(辅助)。
+                // m_navOrder 只含中间四类, 行号与 ListView 的 index 一一对应,
+                // 所以 drop 时直接把 index 传给 Bridge.moveCategoryTo。
+                ListView {
+                    id: orderList
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: Math.max(1, Bridge.navOrder.length) * 40
+                    clip: true
                     model: Bridge.navOrder
+                    boundsBehavior: Flickable.StopAtBounds
 
-                    delegate: RowLayout {
+                    // 被拖动的那一行: 跟随手指 + 半透明 + 提亮
+                    property int dragIndex: -1
+                    property int dropIndex: -1
+
+                    ScrollBar.vertical: ScrollBar {}
+
+                    delegate: ItemDelegate {
+                        id: orderRow
                         required property string modelData
                         required property int index
-                        Layout.fillWidth: true
-                        spacing: 6
+                        width: orderList.width
+                        height: 40
 
-                        Label {
-                            text: (index + 1) + ".  " + Bridge.categoryName(modelData)
-                            color: Theme.textMid
-                            font.pixelSize: Theme.fsSmall
-                            Layout.fillWidth: true
+                        // 拖到目标位置时, 显示一条插入指示线
+                        readonly property bool isDropTarget:
+                            orderList.dragIndex >= 0
+                            && orderList.dropIndex === index
+                            && orderList.dragIndex !== index
+
+                        contentItem: RowLayout {
+                            spacing: 8
+
+                            // 拖动把手
+                            Text {
+                                text: "\u2630"          // ☰
+                                color: Theme.textLo
+                                font.pixelSize: Theme.fsBody
+                                Layout.alignment: Qt.AlignVCenter
+                            }
+
+                            Label {
+                                text: (index + 1) + ".  "
+                                      + Bridge.categoryName(orderRow.modelData)
+                                color: Theme.textMid
+                                font.pixelSize: Theme.fsSmall
+                                Layout.fillWidth: true
+                                Layout.minimumWidth: 0
+                                elide: Text.ElideRight
+                                Layout.alignment: Qt.AlignVCenter
+                            }
+
+                            AppButton {
+                                kind: "ghost"
+                                minW: 32
+                                padH: 6
+                                text: "\u2191"
+                                enabled: index > 0
+                                onClicked: Bridge.moveCategory(orderRow.modelData, -1)
+                                ToolTip.visible: hovered
+                                ToolTip.text: "上移"
+                                ToolTip.delay: 600
+                            }
+
+                            AppButton {
+                                kind: "ghost"
+                                minW: 32
+                                padH: 6
+                                text: "\u2193"
+                                enabled: index < Bridge.navOrder.length - 1
+                                onClicked: Bridge.moveCategory(orderRow.modelData, 1)
+                                ToolTip.visible: hovered
+                                ToolTip.text: "下移"
+                                ToolTip.delay: 600
+                            }
                         }
 
-                        AppButton {
-                            id: upBtn
-                            kind: "ghost"
-                            minW: 32
-                            padH: 6
-                            text: "↑"
-                            enabled: index > 0
-                            onClicked: Bridge.moveCategory(modelData, -1)
-                            ToolTip.visible: hovered
-                            ToolTip.text: "上移"
-                            ToolTip.delay: 600
+                        background: Rectangle {
+                            color: orderList.dragIndex === orderRow.index
+                                   ? Theme.bgHover : "transparent"
+                            radius: 3
+                            Behavior on color { ColorAnimation { duration: 100 } }
                         }
 
-                        AppButton {
-                            id: downBtn
-                            kind: "ghost"
-                            minW: 32
-                            padH: 6
-                            text: "↓"
-                            enabled: index < Bridge.navOrder.length - 1
-                            onClicked: Bridge.moveCategory(modelData, 1)
-                            ToolTip.visible: hovered
-                            ToolTip.text: "下移"
-                            ToolTip.delay: 600
+                        // 插入指示线: 拖到本行位置时显示在顶部
+                        Rectangle {
+                            visible: orderRow.isDropTarget
+                            anchors.top: parent.top
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            height: 2
+                            color: Theme.info
+                        }
+
+                        // 整行按下即进入拖拽
+                        MouseArea {
+                            id: dragArea
+                            anchors.fill: parent
+                            // 按钮区域不触发拖拽(否则点 ↑↓ 会同时启动拖动)
+                            anchors.rightMargin: 76
+                            drag.target: null
+                            drag.axis: Drag.YAxis
+                            drag.minimumY: 0
+                            drag.maximumY: orderList.height - height
+
+                            onPressed: {
+                                orderList.dragIndex = orderRow.index
+                                orderList.dropIndex = orderRow.index
+                            }
+                            // ★ 松手时才提交: 按住拖到目标位置 -> 显示插入线 ->
+                            //   松开 -> 调 moveCategoryTo 落到目标位。
+                            onReleased: {
+                                if (orderList.dragIndex >= 0
+                                        && orderList.dropIndex >= 0
+                                        && orderList.dropIndex !== orderRow.index)
+                                    Bridge.moveCategoryTo(orderRow.modelData,
+                                                          orderList.dropIndex)
+                                orderList.dragIndex = -1
+                                orderList.dropIndex = -1
+                            }
+                            onPositionChanged: {
+                                if (orderList.dragIndex !== orderRow.index)
+                                    return
+                                // 手指纵向位置 -> 落在哪一行
+                                var y = dragArea.mapToItem(orderList,
+                                                            dragArea.mouseX,
+                                                            dragArea.mouseY).y
+                                var idx = orderList.indexAt(y + orderRow.height / 2)
+                                orderList.dropIndex = idx >= 0 ? idx
+                                                             : orderRow.index
+                            }
                         }
                     }
                 }
@@ -540,16 +662,19 @@ Item {
     AppComboBox {
                     id: defaultPageBox
                     Layout.preferredWidth: 160
+                    // model 现在是**字符串数组**(页面名), ComboBox 直接显示,
+                    // 不需要 textRole —— 之前用 textRole 配对象数组是显示错误
+                    // 的根源(C++ 侧读不到 JS 对象的 name 字段)。
                     model: page.pageModel
-                    textRole: "name"
                     currentIndex: {
-                        var m = page.pageModel
-                        for (var i = 0; i < m.length; ++i)
-                            if (m[i].key === Bridge.defaultPage)
+                        var k = page.pageKeys
+                        for (var i = 0; i < k.length; ++i)
+                            if (k[i] === Bridge.defaultPage)
                                 return i
                         return 0
                     }
-                    onActivated: Bridge.defaultPage = page.pageModel[index].key
+                    // 下标对应 pageKeys, 由它取 key 写回。
+                    onActivated: Bridge.defaultPage = page.pageKeys[index]
                 }
             }
 
