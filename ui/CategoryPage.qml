@@ -130,8 +130,11 @@ Item {
 
                 ColumnLayout {
                     id: detailCol
-                    anchors.fill: parent
-                    anchors.margins: Theme.sp
+                    // 同设置页: 不用 anchors.fill(会与父矩形高度成环),
+                    // 只取父宽, 高度由内容决定。
+                    width: parent.width - Theme.sp * 2
+                    height: implicitHeight
+                    anchors.horizontalCenter: parent.horizontalCenter
                     spacing: 6
 
                     Repeater {
@@ -173,8 +176,10 @@ Item {
 
                 ColumnLayout {
                     id: srcCol
-                    anchors.fill: parent
-                    anchors.margins: Theme.sp
+                    // 同 detailCol: 断开与父矩形高度的循环依赖
+                    width: parent.width - Theme.sp * 2
+                    height: implicitHeight
+                    anchors.horizontalCenter: parent.horizontalCenter
                     spacing: 4
 
                     Label {

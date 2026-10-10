@@ -407,7 +407,7 @@ int main(int argc, char *argv[])
     app.setApplicationName(QStringLiteral("iCloudMon"));
     app.setApplicationDisplayName(QStringLiteral("iCloud 状态监控"));
     app.setOrganizationName(QStringLiteral("zvozve"));
-    app.setApplicationVersion(QStringLiteral("1.0.0"));
+    app.setApplicationVersion(QStringLiteral("1.0.1"));
 
     // 强制 Fusion 风格, 保证 QML 原生控件在各平台观感一致
     QQuickStyle::setStyle(QStringLiteral("Fusion"));

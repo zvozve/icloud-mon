@@ -421,8 +421,15 @@ ApplicationWindow {
 
         RowLayout {
             id: toastRow
-            anchors.fill: parent
-            anchors.margins: Theme.sp
+            // ★ 不能用 anchors.fill。toast.height 依赖 toastRow.implicitHeight,
+            //   若 toastRow 又 anchors.fill parent, 就成环:
+            //   toast.height ← toastRow.implicitHeight ← toast.height。
+            //   点开关触发 notify 弹 toast 时这个环被激活, 界面出现彩色撕裂。
+            //   改成: 宽度取父宽(只水平), 高度由自身内容决定, 断开反馈。
+            width: parent.width - Theme.sp * 2
+            height: implicitHeight
+            anchors.horizontalCenter: parent.horizontalCenter
+            anchors.verticalCenter: parent.verticalCenter
             spacing: 8
 
             Rectangle {

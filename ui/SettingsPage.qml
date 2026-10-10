@@ -553,10 +553,14 @@ Item {
                 border.color: Theme.border
                 border.width: 1
 
+                // ★ pathCol 不用 anchors.fill(只用父宽), 高度由自身内容决定。
+                //   父矩形高= pathCol.implicitHeight, 若 pathCol 再 anchors.fill
+                //   父矩形就成环 → contentHeight 绑定循环 → 渲染撕裂。
                 ColumnLayout {
                     id: pathCol
-                    anchors.fill: parent
-                    anchors.margins: 6
+                    width: parent.width - 12
+                    height: implicitHeight
+                    anchors.horizontalCenter: parent.horizontalCenter
                     spacing: 2
 
                     Label {
