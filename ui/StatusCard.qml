@@ -106,26 +106,15 @@ Rectangle {
             spacing: 4
             Layout.alignment: Qt.AlignVCenter
 
-            Button {
+            AppButton {
                 id: refreshBtn
-                width: 74; height: 28
+                kind: "ghost"
+                minW: 74
+                text: "刷新"
                 onClicked: Bridge.refreshNow()
                 ToolTip.visible: hovered
                 ToolTip.text: "立即刷新 (每 " + Bridge.refreshSec + " 秒自动)"
                 ToolTip.delay: 500
-
-                contentItem: Label {
-                    text: "刷新"
-                    color: refreshBtn.hovered ? Theme.textHi : Theme.textMid
-                    horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
-                    font.pixelSize: Theme.fsSmall
-                }
-                background: Rectangle {
-                    radius: Theme.radius
-                    color: refreshBtn.hovered ? Theme.bgHover : Theme.bgCard
-                    border.color: Theme.borderHi
-                }
             }
 
             Label {

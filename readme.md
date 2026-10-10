@@ -51,7 +51,7 @@ hive，**被 iCloudHome 独占锁定**（复制和读取都失败，`Device or r
 
 | 区域 | 内容 |
 |---|---|
-| 导航栏 | 左侧**通高**栏；☰ 可折叠成纯图标；设置固定在底部，与业务项用分隔线分开 |
+| 导航栏 | 左侧**通高**栏；☰ 可折叠成纯图标；设置固定在底部，与业务项用分隔线分开；顶部为 **iCloud 标志 + 标题** |
 | 命令栏 | 状态指示灯 + 状态名 + 版本、iCloud 开关与重启、打开 iCloud 目录 |
 | 状态卡 | 当前状态（空闲/同步中/上传中/下载中/双向传输/暂存中/上传处理中）+ 游标 + 进程 |
 | 上传面板 | 待上传个数与字节、已完成上传 |
@@ -62,7 +62,7 @@ hive，**被 iCloudHome 独占锁定**（复制和读取都失败，`Device or r
 | 待处理项 | 只列**真正**待处理的（有本地实体且状态非 0）；「仅云端」单独计数，不混进来 |
 | 异常告警 | 上传错误码与个数、下载错误码与个数、容量超限 |
 | 卡死检测 | 处于活动状态但活动指纹连续 N 秒无变化 → 红色横幅 + **Windows 系统通知** |
-| 打开目录 | 命令栏 📂 按钮，资源管理器打开 iCloud Drive 同步根目录 |
+| 打开目录 | 命令栏「打开目录」按钮（文件夹图标），资源管理器打开 iCloud Drive 同步根目录 |
 
 ### 卡死是怎么判的
 
@@ -137,8 +137,11 @@ icloud-mon/
 ├─ ui/             QML 界面（全部平铺, 不分子目录 —— 见下方说明）
 │  ├─ Theme.qml          深色主题单例（pragma Singleton）
 │  ├─ Main.qml           外壳: 左侧导航(6 页) + 命令栏 + StackLayout
-│  ├─ NavIcon.qml        导航图标（图元绘制, 不依赖图标字体）
+│  ├─ NavIcon.qml        导航图标（图元绘制, 不依赖图标字体; 含 folder/file/upload/download/trash 图元）
 │  ├─ NavItem.qml        导航项（选中指示条 / 折叠态 / ToolTip）
+│  ├─ AppSwitch.qml      统一开关（覆盖 Switch.indicator, 避免 Fusion 默认样式叠加）
+│  ├─ AppButton.qml      统一按钮（ghost / primary / danger 三种变体）
+│  ├─ AppSlider.qml      统一滑块（修复 track 不显示的 implicitHeight 问题）
 │  ├─ HomePage.qml       首页: 四类同步卡片
 │  ├─ DrivePage.qml      云盘: 横幅 + 状态卡 + 三队列 + 分布 + 待处理 + 回收站
 │  ├─ CategoryPage.qml   相册/密码/书签通用详情页（数据驱动, 不写死类别）
@@ -148,6 +151,7 @@ icloud-mon/
 │  ├─ PcsPanel.qml       云端分布
 │  └─ AlertBanner.qml    异常告警
 ├─ resources/      Qt 资源（qml 打包进 exe + qmldir）
+│  ├─ icloud.svg        iCloud 品牌图标（应用/托盘/导航栏共用, 见下方商标说明）
 ├─ third_party/
 │  └─ spdlog/      spdlog v1.14.1，仅 include/ + LICENSE
 ├─ build.bat       一键构建（vcvars32 + cmake + ninja + windeployqt）
@@ -181,9 +185,20 @@ icloud-mon/
   既然由导航切页，就不再需要「弹出再收起」这层交互。
 - **折叠态**只留图标并居中，文字淡出，用 ToolTip 补文字。
 - 图标用 **`NavIcon.qml` 以图元绘制**（汉堡线 / 2×2 方块 / 柱状图 /
-  带旋钮的滑条），**不用 Segoe MDL2 Assets 图标字体**。
-  本机 `segmdl2.ttf` 和 `SegoeIcons.ttf` 都在，但字体码点记错会显示成方框，
-  而几何图元不存在这种失败模式。
+  带旋钮的滑条 / 文件夹 / 文件 / 上传 / 下载 / 回收站），**不用 Segoe MDL2
+  Assets 图标字体**。本机 `segmdl2.ttf` 和 `SegoeIcons.ttf` 都在，但字体码点
+  记错会显示成方框，而几何图元不存在这种失败模式。原先散落在各页的彩色
+  emoji（📂📁📄⌫）已全部替换为 `NavIcon` 图元 —— 单色矢量体系里混进彩色
+  emoji 就是「打开云盘图标有点突兀」的根源。
+- **统一控件**：开关 / 按钮 / 滑块不再各页手写，而是抽到
+  `AppSwitch.qml` / `AppButton.qml` / `AppSlider.qml` 三个组件
+  （经 `resources/icloudmon.qrc` 打包进 exe），全站复用同一套尺寸与配色
+  （`Theme.btnH` / `Theme.switch*` / `Theme.slider*`）。此前每页各写一版，
+  尺寸参差、配色不统一；更隐蔽的是设置页开关把 `parent.checked` 写成了外层
+  Rectangle（而非 Switch），导致圆点永远不移动、开/关只有颜色变。统一组件后
+  从根上消除这类不一致。
+- **导航栏顶部品牌图标**：原来是纯文字标题，改用 `icloud.svg` 的彩色渐变
+  云朵（左侧 24×24），与应用窗口图标、托盘图标同源，保证三处视觉一致。
 
 ### QML 全部平铺在 `ui/` 下，不建子目录
 
@@ -219,7 +234,7 @@ cmake --build build
 |---|---|---|
 | `AUTOMOC` 只扫描 target sources 里的文件 | `inc/` 下头文件不列出来，moc 不触发，报 34 个 `staticMetaObject` / `qt_metacall` 未解析 | `add_executable` 显式列出全部 `inc/*.h` |
 | spdlog 头文件数量极多 | MSVC 报 C1128 段数过多 | 加 `/bigobj` |
-| `AUTORCC` 与 `qt5_add_resources` 重复处理 | 资源二次编译 | `CMAKE_AUTORCC OFF` |
+| `qt5_add_resources` 不跟踪 QML 改动 | 改了 `ui/*.qml` / `resources/*.svg` 界面，重新构建后跑出来还是旧版 —— 该命令只把 `.qrc` 当依赖，不查它引用的文件 | 删掉 `qt5_add_resources` 块，启用 `CMAKE_AUTORCC ON`：AUTORCC 会跟踪 qrc 内每个引用文件，任何 QML / svg 改动都触发重打包（用唯一探针串进 exe 可验证） |
 | `windeployqt` 5.15 不认 `--32bit` | 报 Unknown option | 用 `--release`，它自动判定位数 |
 | `pragma Singleton` 必须配套 `qmldir` | QML 加载失败 | `resources/qmldir` 内容为 `singleton Theme 1.0 Theme.qml` |
 | `--qmldir=ui` 必须给 | 目录选择对话框 `QtQuick/Dialogs` 不会被部署，运行时才报缺模块 | `build.bat` 已带该参数 |
@@ -523,9 +538,10 @@ CloseHandle(snap);
   （`QtQuick.Dialogs` 依赖 `QtQuick.PrivateWidgets`）。
 - **Windows 上没有托盘图标就弹不出通知**（`Shell_NotifyIcon` 的 `NIF_INFO`
   前提是有托盘项），所以必须建托盘。
-- 托盘图标用 `QPainter` 在运行时画（32×32），**不依赖外部资源文件** ——
-  `QSystemTrayIcon` 没有图标时在部分 Windows 版本上托盘项不显示，
-  连带 `showMessage` 也弹不出来。
+- 窗口图标与托盘图标由 `appIcon()` 统一从资源 `icloud.svg` 生成
+  （嵌入 exe，**不依赖外部文件**）；`QSystemTrayIcon` 没有图标时在部分
+  Windows 版本上托盘项不显示，连带 `showMessage` 也弹不出来。原先的
+  QPainter 占位云已替换为品牌图标。
 - 刻意**不建右键菜单**：`QMenu` 是控件，只有 `QGuiApplication` 时创建控件
   是不受支持的。托盘只承担「显示通知」这一个职责。
 - 通知只在**刚进入卡死**时弹一次（`Bridge::stallAlert` 专用信号），
@@ -536,11 +552,41 @@ CloseHandle(snap);
 
 ---
 
-## 九、第三方与许可
+## 九、界面自测（离屏截图）
+
+改 QML 后想肉验界面，但开发机常无交互桌面会话（无显示器 / 远程 / CI），
+`sceneGraphInitialized` 不触发，常规 `grabToImage` 拿不到像素。程序内置一个
+离屏截图钩子，用软件渲染后端把窗口渲成 PNG：
+
+```bat
+set QT_QUICK_BACKEND=software
+set ICLOUDMON_SHOT=C:/tmp/shots
+:: 可选：只截指定页（name 见 Main.qml 的 NavItem），逗号分隔；不设置则逐页全截
+set ICLOUDMON_SHOT_PAGES=首页,设置
+icloudmon.exe
+```
+
+- 钩子通过 `qInstallEventFilter` 监听窗口 `Expose`，在首个
+  `sceneGraphInitialized` 之后按页切换并 `grabWindow()`；**不设
+  `ICLOUDMON_SHOT` 时完全不生效**，零运行时开销。
+- `QT_QUICK_BACKEND=software`（软件光栅化，不需要 GPU / 合成器）是无头环境
+  拿到像素的前提；不设这个变量，场景图初始化事件不触发。
+- 产物为 `C:/tmp/shots/<页名>.png`，逐页切、逐页截，可肉眼核对布局而不必真开窗口。
+
+### 已知问题：退出段错误（code 139）
+
+程序退出时（main 返回后的销毁阶段）偶发段错误，退出码 139。已用
+`git archive` 取 HEAD 干净树构建复现，**与本次 UI 改动无关**，属既有问题。
+自身 `[RUN] 退出` 日志已正常写出（`code=0`），不影响使用，暂不深究。
+
+---
+
+## 十、第三方与许可
 
 | 组件 | 版本 | 许可 | 位置 |
 |---|---|---|---|
 | spdlog | v1.14.1 | MIT | `third_party/spdlog/`（含 LICENSE） |
 | Qt | 5.15.2 | LGPL v3 / 商业 | 外部安装，不入库 |
+| iCloud 图标 | selfhst/icloud（Iconify），官方彩色渐变 SVG | 商标归 Apple Inc. | `resources/icloud.svg`；本项目仅作只读展示用途，不修改、不重新分发变形版本 |
 
 iCloud Drive 的状态库由 Apple 创建，本项目**只读**，不修改、不上传。

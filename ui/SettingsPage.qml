@@ -32,7 +32,12 @@ Item {
         id: body
         anchors.fill: parent
         contentWidth: width
-        contentHeight: Math.max(height, col.implicitHeight + Theme.spL * 2)
+        // 不要把自身 height 掺进来。Math.max(height, ...) 会给布局留下回环,
+        // 实测软件渲染后端下 Qt 会报
+        //   QML Flickable: Binding loop detected for property "contentHeight".
+        // 而且它本来就多余: 内容不足一屏时下面的 ScrollBar policy 自己会判
+        // 成 AlwaysOff, 不需要靠撑大 contentHeight 来消除滚动条。
+        contentHeight: col.implicitHeight + Theme.spL * 2
         clip: true
         boundsBehavior: Flickable.StopAtBounds
 
@@ -82,35 +87,13 @@ Item {
                     }
                 }
 
-                Switch {
+                AppSwitch {
                     id: autoStartSwitch
                     checked: Bridge.autoStart
                     onToggled: {
                         // 后端写注册表可能失败(如权限), 失败时回滚 UI
                         if (!Bridge.setAutoStart(checked))
                             checked = Bridge.autoStart
-                    }
-
-                    contentItem: Rectangle {
-                        implicitWidth: 42
-                        implicitHeight: 20
-                        radius: 10
-                        color: autoStartSwitch.checked ? Theme.ok : Theme.bgInput
-                        border.color: autoStartSwitch.checked
-                                     ? Theme.ok : Theme.borderHi
-                        Behavior on color { ColorAnimation { duration: 160 } }
-
-                        Rectangle {
-                            anchors.verticalCenter: parent.verticalCenter
-                            x: autoStartSwitch.checked
-                               ? parent.width - width - 2 : 2
-                            width: 16; height: 16; radius: 8
-                            color: "#ffffff"
-                            Behavior on x {
-                                NumberAnimation { duration: 160
-                                                  easing.type: Easing.OutCubic }
-                            }
-                        }
                     }
                 }
             }
@@ -141,9 +124,10 @@ Item {
                     }
                 }
 
-                Slider {
+                AppSlider {
                     id: refreshSlider
                     Layout.fillWidth: true
+                    accent: Theme.info
                     from: 1
                     to: 120
                     stepSize: 1
@@ -154,32 +138,6 @@ Item {
                     readonly property string hint: value <= 2 ? "实时(较耗资源)"
                         : value <= 10 ? "推荐"
                         : value <= 30 ? "省资源" : "很省资源(反应慢)"
-
-                    background: Rectangle {
-                        x: refreshSlider.leftPadding
-                        y: refreshSlider.topPadding
-                           + refreshSlider.availableHeight / 2 - height / 2
-                        width: refreshSlider.availableWidth
-                        height: 4
-                        radius: 2
-                        color: Theme.bgInput
-                        Rectangle {
-                            width: refreshSlider.visualPosition * parent.width
-                            height: parent.height
-                            radius: parent.radius
-                            color: Theme.info
-                        }
-                    }
-                    handle: Rectangle {
-                        x: refreshSlider.leftPadding + refreshSlider.visualPosition
-                           * (refreshSlider.availableWidth - width)
-                        y: refreshSlider.topPadding
-                           + refreshSlider.availableHeight / 2 - height / 2
-                        width: 14; height: 14; radius: 7
-                        color: refreshSlider.pressed ? Theme.infoHi : Theme.info
-                        border.color: Theme.bgPanel
-                        border.width: 2
-                    }
                 }
 
                 Label {
@@ -215,9 +173,10 @@ Item {
                     }
                 }
 
-                Slider {
+                AppSlider {
                     id: stallSlider
                     Layout.fillWidth: true
+                    accent: Theme.warn
                     from: 30
                     to: 1800
                     stepSize: 30
@@ -228,32 +187,6 @@ Item {
                         value <= 120 ? "灵敏(易误报)"
                         : value <= 420 ? "推荐, 5 分钟内无变化即告警"
                         : "迟钝"
-
-                    background: Rectangle {
-                        x: stallSlider.leftPadding
-                        y: stallSlider.topPadding
-                           + stallSlider.availableHeight / 2 - height / 2
-                        width: stallSlider.availableWidth
-                        height: 4
-                        radius: 2
-                        color: Theme.bgInput
-                        Rectangle {
-                            width: stallSlider.visualPosition * parent.width
-                            height: parent.height
-                            radius: parent.radius
-                            color: Theme.warn
-                        }
-                    }
-                    handle: Rectangle {
-                        x: stallSlider.leftPadding + stallSlider.visualPosition
-                           * (stallSlider.availableWidth - width)
-                        y: stallSlider.topPadding
-                           + stallSlider.availableHeight / 2 - height / 2
-                        width: 14; height: 14; radius: 7
-                        color: stallSlider.pressed ? "#f0b849" : Theme.warn
-                        border.color: Theme.bgPanel
-                        border.width: 2
-                    }
                 }
 
                 Label {
@@ -307,48 +240,22 @@ Item {
                     }
                 }
 
-                Button {
+                AppButton {
                     id: browseDriveBtn
+                    kind: "ghost"
                     text: "浏览"
                     onClicked: driveDialog.open()
-                    contentItem: Label {
-                        text: browseDriveBtn.text
-                        color: browseDriveBtn.hovered ? Theme.info : Theme.textMid
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                        font.pixelSize: Theme.fsSmall
-                    }
-                    background: Rectangle {
-                        implicitWidth: 56
-                        implicitHeight: 28
-                        radius: Theme.radius
-                        color: browseDriveBtn.hovered ? Theme.bgHover : "transparent"
-                        border.color: browseDriveBtn.hovered ? Theme.info : Theme.borderHi
-                    }
                 }
 
-                Button {
+                AppButton {
                     id: resetDriveBtn
+                    kind: "ghost"
                     text: "默认"
                     visible: Bridge.driveRoot !== "C:/Container/Cloud/iCloudDrive"
                     onClicked: Bridge.resetDriveRoot()
                     ToolTip.visible: hovered
                     ToolTip.text: "恢复内置默认路径"
                     ToolTip.delay: 600
-                    contentItem: Label {
-                        text: resetDriveBtn.text
-                        color: resetDriveBtn.hovered ? Theme.warn : Theme.textMid
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                        font.pixelSize: Theme.fsSmall
-                    }
-                    background: Rectangle {
-                        implicitWidth: 48
-                        implicitHeight: 28
-                        radius: Theme.radius
-                        color: resetDriveBtn.hovered ? Theme.bgHover : "transparent"
-                        border.color: resetDriveBtn.hovered ? Theme.warn : Theme.borderHi
-                    }
                 }
             }
 
@@ -386,24 +293,11 @@ Item {
                     }
                 }
 
-                Button {
+                AppButton {
                     id: logBtn
+                    kind: "ghost"
                     text: "打开"
                     onClicked: Bridge.openLogDir()
-                    contentItem: Label {
-                        text: logBtn.text
-                        color: logBtn.hovered ? Theme.info : Theme.textMid
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                        font.pixelSize: Theme.fsSmall
-                    }
-                    background: Rectangle {
-                        implicitWidth: 60
-                        implicitHeight: 28
-                        radius: Theme.radius
-                        color: logBtn.hovered ? Theme.bgHover : "transparent"
-                        border.color: logBtn.hovered ? Theme.info : Theme.borderHi
-                    }
                 }
             }
 
@@ -433,37 +327,20 @@ Item {
                     }
                 }
 
-                Button {
+                AppButton {
                     id: testNotifyBtn
+                    kind: "ghost"
                     text: "测试通知"
                     onClicked: Bridge.testSystemNotification()
                     ToolTip.visible: hovered
                     ToolTip.text: "立即弹一条测试通知，确认系统通知是否正常"
                     ToolTip.delay: 600
-                    contentItem: Label {
-                        text: testNotifyBtn.text
-                        color: testNotifyBtn.hovered ? Theme.info : Theme.textMid
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                        font.pixelSize: Theme.fsSmall
-                    }
-                    background: Rectangle {
-                        implicitWidth: 76
-                        implicitHeight: 28
-                        radius: Theme.radius
-                        color: testNotifyBtn.hovered ? Theme.bgHover : "transparent"
-                        border.color: testNotifyBtn.hovered ? Theme.info : Theme.borderHi
-                    }
                 }
             }
-
-            Rectangle { Layout.fillWidth: true; height: 1; color: Theme.border }
 
             // ══════════════════════════════════════════════════
             //  类别启用状态（手动指定）
             // ══════════════════════════════════════════════════
-            Rectangle { Layout.fillWidth: true; height: 1; color: Theme.border }
-
             ColumnLayout {
                 Layout.fillWidth: true
                 spacing: 4
@@ -515,58 +392,21 @@ Item {
                             }
                         }
 
-                        Button {
+                        AppButton {
                             id: autoBtn
+                            kind: "ghost"
                             text: "自动"
                             enabled: modelData.userSet === true
                             onClicked: Bridge.clearCategoryEnabled(modelData.key)
                             ToolTip.visible: hovered
                             ToolTip.text: "清除手动指定，回退到自动检测"
                             ToolTip.delay: 600
-                            contentItem: Label {
-                                text: autoBtn.text
-                                color: autoBtn.enabled
-                                       ? (autoBtn.hovered ? Theme.info : Theme.textMid)
-                                       : Theme.textLo
-                                horizontalAlignment: Text.AlignHCenter
-                                verticalAlignment: Text.AlignVCenter
-                                font.pixelSize: Theme.fsSmall
-                            }
-                            background: Rectangle {
-                                implicitWidth: 48
-                                implicitHeight: 28
-                                radius: Theme.radius
-                                color: autoBtn.hovered ? Theme.bgHover : "transparent"
-                                border.color: autoBtn.enabled ? Theme.borderHi
-                                                              : Theme.border
-                            }
                         }
 
-                        Switch {
+                        AppSwitch {
                             checked: modelData.enabled === true
                             onToggled: Bridge.setCategoryEnabled(modelData.key,
                                                                  checked)
-
-                            contentItem: Rectangle {
-                                implicitWidth: 42
-                                implicitHeight: 20
-                                radius: 10
-                                color: parent.checked ? Theme.ok : Theme.bgInput
-                                border.color: parent.checked ? Theme.ok
-                                                             : Theme.borderHi
-                                Behavior on color { ColorAnimation { duration: 160 } }
-
-                                Rectangle {
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    x: parent.checked ? parent.width - width - 2 : 2
-                                    width: 16; height: 16; radius: 8
-                                    color: "#ffffff"
-                                    Behavior on x {
-                                        NumberAnimation { duration: 160
-                                                          easing.type: Easing.OutCubic }
-                                    }
-                                }
-                            }
                         }
                     }
                 }
@@ -590,24 +430,11 @@ Item {
                         font.bold: true
                         Layout.fillWidth: true
                     }
-                    Button {
+                    AppButton {
                         id: resetOrderBtn
+                        kind: "ghost"
                         text: "恢复默认"
                         onClicked: Bridge.resetNavOrder()
-                        contentItem: Label {
-                            text: resetOrderBtn.text
-                            color: resetOrderBtn.hovered ? Theme.info : Theme.textMid
-                            horizontalAlignment: Text.AlignHCenter
-                            verticalAlignment: Text.AlignVCenter
-                            font.pixelSize: Theme.fsTiny
-                        }
-                        background: Rectangle {
-                            implicitWidth: 72
-                            implicitHeight: 24
-                            radius: Theme.radius
-                            color: resetOrderBtn.hovered ? Theme.bgHover : "transparent"
-                            border.color: Theme.borderHi
-                        }
                     }
                 }
 
@@ -636,58 +463,30 @@ Item {
                             Layout.fillWidth: true
                         }
 
-                        Button {
+                        AppButton {
                             id: upBtn
+                            kind: "ghost"
+                            minW: 32
+                            padH: 6
                             text: "↑"
                             enabled: index > 0
                             onClicked: Bridge.moveCategory(modelData, -1)
                             ToolTip.visible: hovered
                             ToolTip.text: "上移"
                             ToolTip.delay: 600
-                            contentItem: Label {
-                                text: upBtn.text
-                                color: upBtn.enabled ? (upBtn.hovered ? Theme.info
-                                                                      : Theme.textMid)
-                                                     : Theme.textLo
-                                horizontalAlignment: Text.AlignHCenter
-                                verticalAlignment: Text.AlignVCenter
-                                font.pixelSize: Theme.fsSmall
-                            }
-                            background: Rectangle {
-                                implicitWidth: 30
-                                implicitHeight: 26
-                                radius: Theme.radius
-                                color: upBtn.hovered ? Theme.bgHover : "transparent"
-                                border.color: upBtn.enabled ? Theme.borderHi
-                                                            : Theme.border
-                            }
                         }
 
-                        Button {
+                        AppButton {
                             id: downBtn
+                            kind: "ghost"
+                            minW: 32
+                            padH: 6
                             text: "↓"
                             enabled: index < Bridge.navOrder.length - 1
                             onClicked: Bridge.moveCategory(modelData, 1)
                             ToolTip.visible: hovered
                             ToolTip.text: "下移"
                             ToolTip.delay: 600
-                            contentItem: Label {
-                                text: downBtn.text
-                                color: downBtn.enabled ? (downBtn.hovered ? Theme.info
-                                                                          : Theme.textMid)
-                                                       : Theme.textLo
-                                horizontalAlignment: Text.AlignHCenter
-                                verticalAlignment: Text.AlignVCenter
-                                font.pixelSize: Theme.fsSmall
-                            }
-                            background: Rectangle {
-                                implicitWidth: 30
-                                implicitHeight: 26
-                                radius: Theme.radius
-                                color: downBtn.hovered ? Theme.bgHover : "transparent"
-                                border.color: downBtn.enabled ? Theme.borderHi
-                                                              : Theme.border
-                            }
                         }
                     }
                 }

@@ -33,7 +33,12 @@ Item {
         id: body
         anchors.fill: parent
         contentWidth: width
-        contentHeight: Math.max(height, col.implicitHeight + Theme.spL * 2)
+        // 不要把自身 height 掺进来。Math.max(height, ...) 会给布局留下回环,
+        // 实测软件渲染后端下 Qt 会报
+        //   QML Flickable: Binding loop detected for property "contentHeight".
+        // 而且它本来就多余: 内容不足一屏时下面的 ScrollBar policy 自己会判
+        // 成 AlwaysOff, 不需要靠撑大 contentHeight 来消除滚动条。
+        contentHeight: col.implicitHeight + Theme.spL * 2
         clip: true
         boundsBehavior: Flickable.StopAtBounds
 

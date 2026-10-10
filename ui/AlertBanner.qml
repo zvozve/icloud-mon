@@ -90,26 +90,13 @@ Rectangle {
             spacing: 4
             Layout.alignment: Qt.AlignTop
 
-            Button {
+            AppButton {
                 id: fixBtn
-                width: 88; height: 26
+                kind: "danger"
+                minW: 88
                 onClicked: Bridge.restartIcloud()
                 enabled: !Bridge.busyRestarting
                 text: Bridge.busyRestarting ? "处理中" : "重启 iCloud"
-
-                contentItem: Label {
-                    text: fixBtn.text
-                    color: fixBtn.enabled ? Theme.textHi : Theme.textLo
-                    horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
-                    font.pixelSize: Theme.fsSmall
-                    font.bold: true
-                }
-                background: Rectangle {
-                    radius: Theme.radius
-                    color: fixBtn.hovered ? Theme.err : "transparent"
-                    border.color: Theme.err
-                }
             }
 
             Label {

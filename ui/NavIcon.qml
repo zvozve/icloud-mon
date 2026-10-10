@@ -7,6 +7,8 @@
 //  本机两个图标字体都在, 想换回原生字形只需改这里的实现。
 //
 //  kind: "menu" | "home" | "status" | "settings"
+//        | "drive" | "photos" | "passwords" | "bookmarks"
+//        | "folder" | "file" | "upload" | "download" | "trash"
 // ======================================================================
 import QtQuick 2.15
 
@@ -15,6 +17,12 @@ Item {
 
     property string kind: "home"
     property color color: Theme.textMid
+    // 挖空用的底色。
+    // 密码锁孔、书签缺口、设置旋钮这几个形状是靠"再画一块底色"挖出来的,
+    // 所以这个颜色必须等于当前背景色, 否则会露出一块突兀的补丁。
+    // 原来硬编码 Theme.navBg —— 只在导航栏里成立, 拿到命令栏(bgPanel)
+    // 或卡片上就挖错色。改成属性, 由使用处传对。
+    property color maskColor: Theme.navBg
     // 线宽, 跟随图标尺寸等比缩放
     readonly property real lw: Math.max(1.5, width / 9)
 
@@ -178,7 +186,7 @@ Item {
             width: Math.max(2, parent.width * 0.16)
             height: parent.height * 0.26
             radius: width / 2
-            color: Theme.navBg
+            color: root.maskColor
         }
     }
 
@@ -203,7 +211,7 @@ Item {
             width: parent.width * 0.52
             height: width
             rotation: 45
-            color: Theme.navBg
+            color: root.maskColor
         }
     }
 
@@ -238,18 +246,213 @@ Item {
                     color: root.color
                 }
 
-                // 旋钮: 用导航栏底色挖空线条, 比画实心块更像 UWP 的字形
+                // 旋钮: 用 nav 底色挖空线条, 比画实心块更像 UWP 的字形
                 Rectangle {
                     anchors.verticalCenter: parent.verticalCenter
                     x: (parent.width - width) * sliders.knobAt[index]
                     width: sliders.knob
                     height: width
                     radius: width / 2
-                    color: Theme.navBg
+                    color: root.maskColor
                     border.color: root.color
                     border.width: root.lw
                 }
             }
+        }
+    }
+
+    // ── 文件夹: 后标签 + 前主体 ──
+    // 替代原来的 📂 emoji。emoji 是彩色位图, 混在单色矢量图标里最突兀,
+    // 而且颜色不受主题控制(改 Theme 也不会变), 在深色界面上尤其跳。
+    Item {
+        anchors.fill: parent
+        visible: root.kind === "folder"
+
+        // 后面的标签页
+        Rectangle {
+            x: 0
+            y: parent.height * 0.16
+            width: parent.width * 0.44
+            height: parent.height * 0.18
+            radius: 1.5
+            color: root.color
+        }
+        // 前面的主体
+        Rectangle {
+            x: 0
+            y: parent.height * 0.28
+            width: parent.width
+            height: parent.height * 0.62
+            radius: 2
+            color: root.color
+        }
+    }
+
+    // ── 文件: 描边页 + 三条内容线 ──
+    // 用描边而不是实心, 这样不需要挖空, 放哪个底色上都成立。
+    Item {
+        anchors.fill: parent
+        visible: root.kind === "file"
+
+        Rectangle {
+            x: parent.width * 0.2
+            y: 0
+            width: parent.width * 0.6
+            height: parent.height
+            radius: 1.5
+            color: "transparent"
+            border.color: root.color
+            border.width: root.lw
+        }
+        // 三条内容线: 第 3 条短一些, 更像文档
+        Rectangle {
+            x: parent.width * 0.3
+            y: parent.height * 0.28
+            width: parent.width * 0.4
+            height: root.lw * 0.8
+            radius: height / 2
+            color: root.color
+        }
+        Rectangle {
+            x: parent.width * 0.3
+            y: parent.height * 0.5
+            width: parent.width * 0.4
+            height: root.lw * 0.8
+            radius: height / 2
+            color: root.color
+        }
+        Rectangle {
+            x: parent.width * 0.3
+            y: parent.height * 0.72
+            width: parent.width * 0.24
+            height: root.lw * 0.8
+            radius: height / 2
+            color: root.color
+        }
+    }
+
+    // ── 上传: 向上箭头 + 底部托盘线 ──
+    Item {
+        anchors.fill: parent
+        visible: root.kind === "upload"
+
+        // 箭杆
+        Rectangle {
+            anchors.horizontalCenter: parent.horizontalCenter
+            y: parent.height * 0.3
+            width: Math.max(1.5, root.lw * 0.9)
+            height: parent.height * 0.44
+            radius: width / 2
+            color: root.color
+        }
+        // 箭头: 两根 45 度斜杆拼成 ^ (不用三角形, 斜杆在细尺寸下更清楚)
+        Rectangle {
+            x: parent.width * 0.5 - width + root.lw * 0.5
+            y: parent.height * 0.28
+            width: parent.width * 0.3
+            height: Math.max(1.5, root.lw * 0.9)
+            radius: height / 2
+            rotation: -45
+            transformOrigin: Item.Right
+            color: root.color
+        }
+        Rectangle {
+            x: parent.width * 0.5 + width - root.lw * 0.5
+            y: parent.height * 0.28
+            width: parent.width * 0.3
+            height: Math.max(1.5, root.lw * 0.9)
+            radius: height / 2
+            rotation: 45
+            transformOrigin: Item.Left
+            color: root.color
+        }
+        // 托盘
+        Rectangle {
+            x: parent.width * 0.12
+            y: parent.height * 0.82
+            width: parent.width * 0.76
+            height: Math.max(1.5, root.lw * 0.9)
+            radius: height / 2
+            color: root.color
+        }
+    }
+
+    // ── 下载: 向下箭头 + 底部托盘线 ──
+    Item {
+        anchors.fill: parent
+        visible: root.kind === "download"
+
+        Rectangle {
+            anchors.horizontalCenter: parent.horizontalCenter
+            y: parent.height * 0.24
+            width: Math.max(1.5, root.lw * 0.9)
+            height: parent.height * 0.44
+            radius: width / 2
+            color: root.color
+        }
+        Rectangle {
+            x: parent.width * 0.5 - width + root.lw * 0.5
+            y: parent.height * 0.56
+            width: parent.width * 0.3
+            height: Math.max(1.5, root.lw * 0.9)
+            radius: height / 2
+            rotation: 45
+            transformOrigin: Item.Right
+            color: root.color
+        }
+        Rectangle {
+            x: parent.width * 0.5 + width - root.lw * 0.5
+            y: parent.height * 0.56
+            width: parent.width * 0.3
+            height: Math.max(1.5, root.lw * 0.9)
+            radius: height / 2
+            rotation: -45
+            transformOrigin: Item.Left
+            color: root.color
+        }
+        Rectangle {
+            x: parent.width * 0.12
+            y: parent.height * 0.82
+            width: parent.width * 0.76
+            height: Math.max(1.5, root.lw * 0.9)
+            radius: height / 2
+            color: root.color
+        }
+    }
+
+    // ── 回收站: 桶盖 + 提手 + 桶身 ──
+    Item {
+        anchors.fill: parent
+        visible: root.kind === "trash"
+
+        // 提手
+        Rectangle {
+            anchors.horizontalCenter: parent.horizontalCenter
+            y: 0
+            width: parent.width * 0.26
+            height: parent.height * 0.12
+            radius: 1
+            color: root.color
+        }
+        // 桶盖
+        Rectangle {
+            x: 0
+            y: parent.height * 0.14
+            width: parent.width
+            height: Math.max(1.5, root.lw)
+            radius: height / 2
+            color: root.color
+        }
+        // 桶身
+        Rectangle {
+            x: parent.width * 0.16
+            y: parent.height * 0.26
+            width: parent.width * 0.68
+            height: parent.height * 0.74
+            radius: 1.5
+            color: "transparent"
+            border.color: root.color
+            border.width: root.lw
         }
     }
 }

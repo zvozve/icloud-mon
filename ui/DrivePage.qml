@@ -21,7 +21,12 @@ Item {
         id: body
         anchors.fill: parent
         contentWidth: width
-        contentHeight: Math.max(height, col.implicitHeight + Theme.spL * 2)
+        // 不要把自身 height 掺进来。Math.max(height, ...) 会给布局留下回环,
+        // 实测软件渲染后端下 Qt 会报
+        //   QML Flickable: Binding loop detected for property "contentHeight".
+        // 而且它本来就多余: 内容不足一屏时下面的 ScrollBar policy 自己会判
+        // 成 AlwaysOff, 不需要靠撑大 contentHeight 来消除滚动条。
+        contentHeight: col.implicitHeight + Theme.spL * 2
         clip: true
         boundsBehavior: Flickable.StopAtBounds
 
@@ -68,7 +73,7 @@ Item {
                     pendingCount: Bridge.upCount
                     pendingSize: Bridge.upSize
                     busy: Bridge.upBusy
-                    icon: "↑"
+                    icon: "upload"
                 }
 
                 QueuePanel {
@@ -83,7 +88,7 @@ Item {
                     extraText: Bridge.dlPending > 0
                                 ? ("取回队列 " + Bridge.dlPending + " 条") : ""
                     busy: Bridge.dlBusy
-                    icon: "↓"
+                    icon: "download"
                 }
 
                 // 删除: 待删除 = needs_delete_doc_count;
@@ -102,7 +107,7 @@ Item {
                     extraText: Bridge.delDone > 0
                                 ? ("回收站 " + Bridge.delDone + " 项") : ""
                     busy: Bridge.delBusy
-                    icon: "⌫"
+                    icon: "trash"
                 }
             }
 
@@ -232,9 +237,13 @@ Item {
                                 anchors.rightMargin: 6
                                 spacing: 6
 
-                                Label {
-                                    text: isDir ? "📁" : "📄"
-                                    font.pixelSize: Theme.fsSmall
+                                // 原来这里是 📁 / 📄 emoji: 彩色位图, 不跟主题色,
+                                // 而且不同 Windows 版本的 emoji 字形差别很大。
+                                // 换成与导航栏同一套的单色图元。
+                                NavIcon {
+                                    kind: isDir ? "folder" : "file"
+                                    color: Theme.textLo
+                                    Layout.alignment: Qt.AlignVCenter
                                 }
                                 Label {
                                     text: name

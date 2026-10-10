@@ -17,6 +17,8 @@ Rectangle {
     property string pendingSize: ""
     property string extraText: ""
     property bool busy: false
+    // NavIcon 的 kind 名(不是任意字符)。原来这里传的是 "↑" / "↓" / "⌫"
+    // 三个文本符号, 和界面其它地方的矢量图标不是一套线条, 大小与粗细也对不上。
     property string icon: ""
     // "待处理"这一栏的标题可换。删除队列要显示"待删除" ——
     // 叫"待处理"会让人看不出是删除。
@@ -47,11 +49,12 @@ Rectangle {
             Layout.fillWidth: true
             spacing: 6
 
-            Label {
-                text: root.icon
+            NavIcon {
+                kind: root.icon
                 color: root.accent
-                font.pixelSize: Theme.fsTitle
-                font.bold: true
+                // 挖空色跟随面板底色, 否则图标上会露出导航栏的颜色
+                maskColor: Theme.bgPanel
+                Layout.alignment: Qt.AlignVCenter
             }
             Label {
                 text: root.title

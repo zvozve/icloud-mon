@@ -17,8 +17,16 @@ project(iCloudMon VERSION 1.0.0 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
-# 资源由下面的 qt5_add_resources 显式处理, 关掉 AUTORCC 避免二次处理
-set(CMAKE_AUTORCC OFF)
+# ★ AUTORCC 必须开。
+#
+# 曾经的写法是关掉 AUTORCC + 用 qt5_add_resources。问题: qt5_add_resources
+# 生成的 rcc 产物**只把 .qrc 自身当作依赖**, .qrc 里引用的 ui/*.qml 不在依赖里。
+# 后果是只改 QML(界面) 不触发资源重新打包 —— F7 编译"成功", 跑出来的却还是
+# 上一次的界面, 白白怀疑代码写错了。这个坑非常隐蔽。
+#
+# AUTORCC 会解析 .qrc, 把里面 <file> 引用的文件一并列为 rcc 的依赖,
+# 改 qml / svg 就会重新打包。详见下方 add_executable 里的 icloudmon.qrc。
+set(CMAKE_AUTORCC ON)
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
 
 # Qt 5.15 需要, 否则 QML 报 Cannot mix incompatible Qt libraries
@@ -37,9 +45,8 @@ find_package(Qt5 5.15 REQUIRED COMPONENTS
 )
 
 # Qt 资源文件 (QML 打包进 exe, 免外部文件依赖)
-qt5_add_resources(RESOURCE_SOURCES
-    resources/icloudmon.qrc
-)
+# 直接把 .qrc 交给 target, 由 AUTORCC 处理并跟踪它引用的文件。
+# 不要再改成 qt5_add_resources —— 它不会跟踪 qrc 引用的文件(见文件开头说明)。
 
 # ======================================================================
 #  spdlog (vendored)
@@ -76,7 +83,8 @@ add_executable(iCloudMon WIN32
     inc/AutoStart.h
     inc/IcloudPaths.h
     inc/Log.h
-    ${RESOURCE_SOURCES}
+    # 资源: 由 AUTORCC 编译, 并按 qrc 里引用的文件建立依赖
+    resources/icloudmon.qrc
 )
 
 target_include_directories(iCloudMon PRIVATE

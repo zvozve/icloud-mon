@@ -40,6 +40,11 @@ Rectangle {
         color: item.selected ? Theme.accent
                              : (hover.containsMouse ? Theme.textHi
                                                     : Theme.textMid)
+        // 挖空色必须跟着底色走: 选中/悬停时底不是 navBg, 传错会在图标上
+        // 留下几块对不上色的补丁(锁孔、书签缺口、设置旋钮都是挖出来的)。
+        maskColor: item.selected ? Theme.navActive
+                                 : (hover.containsMouse ? Theme.navHover
+                                                        : Theme.navBg)
         anchors.verticalCenter: parent.verticalCenter
         x: item.collapsed ? (item.width - width) / 2 : 16
         Behavior on x {

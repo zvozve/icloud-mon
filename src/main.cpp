@@ -5,12 +5,15 @@
 //  界面: QML (Qt Quick Controls 2), 深色主题。
 //  日志: spdlog, 按天切分, 输出到 exe 同级\log\
 // ======================================================================
+#include <utility>
+
 #include <QCoreApplication>
 #include <QDateTime>
 #include <QDir>
 #include <QGuiApplication>
 #include <QHash>
 #include <QIcon>
+#include <QImage>
 #include <QOpenGLContext>
 #include <QOpenGLFunctions>
 #include <QPainter>
@@ -22,7 +25,9 @@
 #include <QSqlDatabase>
 #include <QSqlError>
 #include <QSqlQuery>
+#include <QStringList>
 #include <QSystemTrayIcon>
+#include <QTimer>
 
 #include "Bridge.h"
 #include "IcloudPaths.h"
@@ -176,35 +181,164 @@ void logGraphicsBackend(QQmlApplicationEngine &engine)
     icloud::log::info(QStringLiteral("[GPU] 图形后端探针已挂载, 等待首次渲染"));
 }
 
-// 画一个 32x32 的托盘图标, 不依赖外部资源文件。
-// QSystemTrayIcon 没有图标时在部分 Windows 版本上会不显示托盘项,
-// 进而导致 showMessage 弹不出通知。
-QIcon makeTrayIcon()
+// 应用图标。
+//
+// 用打包进 qrc 的矢量 iCloud 标志(来源见 resources/icloud.svg 顶部注释),
+// 由 qsvg 图片插件栅格化 —— windeployqt 已把 imageformats/qsvg.dll 与
+// Qt5Svg.dll 一起部署, 所以运行时不需要额外依赖。
+//
+// 用 SVG 而不是预渲染的 .ico: 一张矢量图覆盖任务栏/ Alt-Tab / 托盘 /
+// 高 DPI 全部尺寸, 不必手工准备 16/32/48/256 四份位图。
+QIcon appIcon()
 {
+    QIcon icon(QStringLiteral(":/icons/icloud.svg"));
+    // pixmap() 是真正的探针: QIcon 构造成功不代表渲染器可用,
+    // 只有能取到像素才算图标真的能用。
+    if (!icon.pixmap(32, 32).isNull())
+        return icon;
+
+    icloud::log::warn(QStringLiteral(
+        "[RUN] iCloud 图标渲染失败(qsvg 插件缺失?), 回落到内置绘制图标"));
+
+    // 兜底: 运行时画一个圆点 + "iC"。
+    // 不能返回空 QIcon —— Windows 上没有托盘图标会导致系统通知弹不出来。
     QPixmap pm(32, 32);
     pm.fill(Qt::transparent);
-
     QPainter p(&pm);
     p.setRenderHint(QPainter::Antialiasing);
     p.setPen(Qt::NoPen);
-    p.setBrush(QColor(0x58, 0xa6, 0xff));
+    p.setBrush(QColor(0x3e, 0x82, 0xf4));
     p.drawEllipse(2, 2, 28, 28);
-
     QFont f = p.font();
     f.setPixelSize(17);
     f.setBold(true);
     p.setFont(f);
-    p.setPen(QColor(0x16, 0x18, 0x1d));
+    p.setPen(QColor(0xff, 0xff, 0xff));
     p.drawText(pm.rect(), Qt::AlignCenter, QStringLiteral("iC"));
     p.end();
-
     return QIcon(pm);
+}
+
+// ══════════════════════════════════════════════════════════════════════
+//  界面截图钩子 (开发/自检用)
+//
+//  为什么需要它: 本机这个会话没有交互式桌面, 正常启动时 QML 窗口从不真正
+//  渲染([GPU] 探针只有"已挂载"、没有 renderer 那几行就是证据)。于是任何
+//  界面改动都只能"编译通过"而无法核对视觉效果。这个钩子把真实界面渲染成
+//  PNG, 让视觉问题在交付前就能被发现, 而不是等使用者看到。
+//
+//  用法(不需要交互式桌面, 实测在本机可直接跑通):
+//    set ICLOUDMON_SHOT=C:\tmp\ui.png
+//    set ICLOUDMON_SHOT_PAGES=home,drive,settings     (留空则只截当前页)
+//    iCloudMon.exe
+//  会在每个页面上抓一张 ui-<page>.png。
+//
+//  如果所在会话拿不到 OpenGL 上下文(探针会记 "[GPU] 无当前 OpenGL 上下文"),
+//  再加 QT_QUICK_BACKEND=software 走软件渲染即可出图。
+//  不设 ICLOUDMON_SHOT 时整个钩子不生效, 对正常运行零影响(仅一次 getenv)。
+// ══════════════════════════════════════════════════════════════════════
+class ShotRunner : public QObject
+{
+public:
+    ShotRunner(QQuickWindow *win, QString base, QStringList pages,
+               QGuiApplication *app)
+        : QObject(app), m_win(win), m_base(std::move(base)),
+          m_pages(std::move(pages)), m_app(app) {}
+
+    void start(int delayMs)
+    {
+        icloud::log::info(QStringLiteral("[SHOT] %1ms 后导出 %2 个页面 -> %3")
+                              .arg(delayMs).arg(m_pages.size()).arg(m_base));
+        QTimer::singleShot(delayMs, this, &ShotRunner::step);
+    }
+
+private:
+    void step();
+    QQuickWindow   *m_win;
+    QString         m_base;
+    QStringList     m_pages;
+    int             m_i = 0;
+    QGuiApplication *m_app;
+};
+
+void ShotRunner::step()
+{
+    if (m_i >= m_pages.size()) {
+        icloud::log::info(QStringLiteral("[SHOT] 全部完成, 退出"));
+        m_app->quit();
+        return;
+    }
+
+    // 空字符串 = 不切页, 就截当前页
+    const QString page = m_pages.at(m_i);
+    if (!page.isEmpty())
+        m_win->setProperty("currentKey", page);
+
+    // 切页后等布局稳定再抓: StackLayout 的子项有 Behavior 动画,
+    // 抓太早会拍到动画中间态。
+    QTimer::singleShot(1400, this, [this, page]() {
+        const QImage img = m_win->grabWindow();
+        QString out = m_base;
+        if (!page.isEmpty()) {
+            out.replace(QStringLiteral(".png"),
+                        QStringLiteral("-") + page + QStringLiteral(".png"));
+        }
+        if (img.isNull()) {
+            icloud::log::warn(QStringLiteral("[SHOT] %1: grabWindow 返回空图")
+                                  .arg(page.isEmpty() ? QStringLiteral("当前页") : page));
+        } else if (!img.save(out)) {
+            icloud::log::warn(QStringLiteral("[SHOT] %1: 保存失败").arg(out));
+        } else {
+            icloud::log::info(QStringLiteral("[SHOT] %1 -> %2 (%3x%4)")
+                                  .arg(page.isEmpty() ? QStringLiteral("当前页") : page,
+                                       out)
+                                  .arg(img.width())
+                                  .arg(img.height()));
+        }
+        ++m_i;
+        step();
+    });
+}
+
+void setupScreenshotHook(QQmlApplicationEngine &engine, QGuiApplication &app)
+{
+    const QByteArray path = qgetenv("ICLOUDMON_SHOT");
+    if (path.isEmpty())
+        return;  // 正常运行走这条, 零开销
+
+    if (engine.rootObjects().isEmpty()) {
+        icloud::log::warn(QStringLiteral("[SHOT] 根对象为空, 无法截图"));
+        return;
+    }
+    auto *win = qobject_cast<QQuickWindow *>(engine.rootObjects().constFirst());
+    if (!win) {
+        icloud::log::warn(QStringLiteral("[SHOT] 根对象不是 QQuickWindow"));
+        return;
+    }
+
+    QStringList pages;
+    const QByteArray raw = qgetenv("ICLOUDMON_SHOT_PAGES");
+    if (!raw.isEmpty())
+        pages = QString::fromLocal8Bit(raw).split(QLatin1Char(','),
+                                                   Qt::SkipEmptyParts);
+    if (pages.isEmpty())
+        pages << QString();
+
+    auto *runner = new ShotRunner(win, QString::fromLocal8Bit(path), pages, &app);
+    runner->start(2500);  // 给首次渲染与数据采样留时间
 }
 
 }  // namespace
 
 int main(int argc, char *argv[])
 {
+    // ★ 这两个属性必须在 QGuiApplication 构造**之前**设置。
+    // 原来写在构造之后 —— Qt 会忽略并只在 stderr 上警告一句, 而 GUI 程序
+    // 没有控制台, 这条警告根本看不到(那时 Qt 消息处理器也还没装上)。
+    // 后果是 125%/150% 缩放的屏幕上界面被拉伸发虚。
+    QGuiApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
+    QGuiApplication::setAttribute(Qt::AA_UseHighDpiPixmaps);
+
     QGuiApplication app(argc, argv);
     app.setApplicationName(QStringLiteral("iCloudMon"));
     app.setApplicationDisplayName(QStringLiteral("iCloud 状态监控"));
@@ -213,10 +347,6 @@ int main(int argc, char *argv[])
 
     // 强制 Fusion 风格, 保证 QML 原生控件在各平台观感一致
     QQuickStyle::setStyle(QStringLiteral("Fusion"));
-
-    // 高 DPI 适配 (Qt 5.15 默认已开, 显式声明便于移植到其他版本)
-    QGuiApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
-    QGuiApplication::setAttribute(Qt::AA_UseHighDpiPixmaps);
 
     // ── 日志初始化 (必须在任何其他模块之前) ──
     icloud::log::init();
@@ -228,6 +358,17 @@ int main(int argc, char *argv[])
 
     // Qt 消息转发必须在 log::init 之后, 否则前面的日志无处可去
     routeQtMessagesToLog();
+
+    // 窗口图标 = 任务栏 / Alt-Tab 上显示的图标。
+    // 放在 log::init 之后: appIcon() 渲染失败时要能写进日志文件。
+    // 注意: QML 侧不再单独设 ApplicationWindow.icon —— QGuiApplication 这一处
+    // 覆盖所有顶层窗口, 两处都设反而会形成两个真相源。
+    const QIcon icon = appIcon();
+    app.setWindowIcon(icon);
+    icloud::log::info(QStringLiteral("[RUN] 应用图标: 32px 位图取用%1")
+                          .arg(icon.pixmap(32, 32).isNull()
+                                   ? QStringLiteral("失败")
+                                   : QStringLiteral("正常")));
 
     addPluginPaths();
 
@@ -241,10 +382,22 @@ int main(int argc, char *argv[])
                                    .arg(drvErr));
     }
 
+    // ══════════════════════════════════════════════════════════════
+    //  ★ 声明顺序 = 析构顺序的倒序, 这里必须是 bridge 在前、engine 在后
+    //
+    //  C++ 规则: 栈对象按声明顺序的**倒序**析构。所以先声明的后死。
+    //  engine 析构时会销毁全部 QML 对象, 而它们持有 Bridge 的引用
+    //  (context property + 各种绑定)。如果 Bridge 先被析构, engine 收尾时
+    //  碰到的是已销毁对象 —— 表现为 main 返回前后的一次段错误(SIGSEGV),
+    //  而且日志里看不到任何线索(那一刻 log 已 shutdown)。
+    //
+    //  原来的顺序是 engine 在前、bridge 在后, 正好反了。实测:
+    //  调整前正常关窗退出也是段错误, 调整后退出码为 0。
+    // ══════════════════════════════════════════════════════════════
+    icloud::Bridge bridge;
     QQmlApplicationEngine engine;
 
     // 桥接对象注册为上下文属性, QML 全局可用
-    icloud::Bridge bridge;
     engine.rootContext()->setContextProperty(
         QStringLiteral("Bridge"), &bridge);
     engine.rootContext()->setContextProperty(
@@ -263,6 +416,9 @@ int main(int argc, char *argv[])
     // 图形后端信息: 只有它出现后才能确定是不是软件渲染
     logGraphicsBackend(engine);
 
+    // 开发自检用的截图钩子, 不设 ICLOUDMON_SHOT 时不做任何事
+    setupScreenshotHook(engine, app);
+
     // ══════════════════════════════════════════════════════════════
     //  系统托盘 + 卡死告警的 Windows 系统通知
     //
@@ -275,7 +431,7 @@ int main(int argc, char *argv[])
     // ══════════════════════════════════════════════════════════════
     QSystemTrayIcon *tray = nullptr;
     if (QSystemTrayIcon::isSystemTrayAvailable()) {
-        tray = new QSystemTrayIcon(makeTrayIcon(), &app);
+        tray = new QSystemTrayIcon(icon, &app);
         tray->setToolTip(QStringLiteral("iCloud 状态监控"));
         tray->show();
         icloud::log::info(
@@ -286,6 +442,16 @@ int main(int argc, char *argv[])
     }
 
     if (tray) {
+        // ★ 退出前必须显式 hide()。
+        // Windows 的托盘实现(QWindowsSystemTrayIcon)内部自带一个 QThread 和
+        // 一个隐藏的消息窗口; 直接退出时那个线程会先被销毁, 之后消息窗口再收到
+        // 消息就会踩到已释放的对象 —— 表现为退出阶段的段错误(SIGSEGV),
+        // 同时伴随日志里的 "Timers cannot be stopped from another thread"。
+        // 实测: 不 hide 时正常关闭窗口也会崩; hide 后就干净了。
+        QObject::connect(&app, &QCoreApplication::aboutToQuit, tray, [tray]() {
+            tray->hide();
+        });
+
         QObject::connect(
             &bridge, &icloud::Bridge::systemNotify, tray,
             [tray](const QString &title, const QString &detail) {

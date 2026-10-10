@@ -74,4 +74,23 @@ QtObject {
     readonly property int spXL:    24
 
     readonly property int radius:  6
+
+    // ── 控件尺寸 ──
+    // 按钮高度集中在这里。改造前 12 处按钮各自写死, 出现过 30 / 28 / 26 / 24
+    // 四种高度, 并排时能看出不齐 —— 统一到这一个值。
+    readonly property int btnH:       28
+    // 开关轨道尺寸同理, 三个 Switch 原本各写各的
+    readonly property int switchW:    42
+    readonly property int switchH:    22
+    readonly property int switchKnob: 16
+
+    // 滑块尺寸。
+    // ★ 这三个值必须给到控件本体: Slider 的 implicitHeight 是从
+    //   background/handle 的 **implicit** 尺寸推出来的。原来两个滑块
+    //   只给 background/handle 设了 width/height, 没设 implicit*,
+    //   于是隐含高度算成 0, 控件被压成一条 —— 界面上轨道整条不见,
+    //   只剩一个被裁掉一半的圆点。现在把高度交给控件, 内部按可用高度居中。
+    readonly property int sliderH:     20
+    readonly property int sliderTrack: 4
+    readonly property int sliderKnob:  14
 }

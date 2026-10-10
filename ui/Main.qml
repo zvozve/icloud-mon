@@ -138,9 +138,37 @@ ApplicationWindow {
                         }
                     }
 
+                    // ── 品牌图标 ──
+                    // 用打包进 qrc 的官方 iCloud 标志(彩色渐变矢量)。
+                    // 这里是全程序唯一使用彩色图标的位置 —— 品牌位就该是彩色的;
+                    // 功能位一律用 NavIcon 的单色图元, 混色会显得突兀。
+                    Image {
+                        id: brandIcon
+                        source: "qrc:/icons/icloud.svg"
+                        // sourceSize 比逻辑尺寸大一倍, 高 DPI 下不糊
+                        sourceSize: Qt.size(40, 40)
+                        width: 20
+                        height: 20
+                        anchors.left: menuBtn.right
+                        anchors.leftMargin: 2
+                        anchors.verticalCenter: parent.verticalCenter
+                        smooth: true
+                        mipmap: true
+                        // Image 加载失败不会报 QML 错误, 只会静默留白。
+                        // 这里主动记一条, 免得换机器后图标不见了却查不到原因
+                        // (缺 imageformats/qsvg.dll 是唯一可能的成因)。
+                        onStatusChanged: if (status === Image.Error)
+                                             console.warn("品牌图标加载失败(检查 qsvg 插件): "
+                                                          + source)
+                        // 折叠态整个导航只有 52px 宽, 放不下图标, 淡出
+                        opacity: win.navExpanded ? 1 : 0
+                        visible: opacity > 0
+                        Behavior on opacity { NumberAnimation { duration: 120 } }
+                    }
+
                     Label {
-                        anchors.left: parent.left
-                        anchors.leftMargin: 48
+                        anchors.left: brandIcon.right
+                        anchors.leftMargin: 8
                         anchors.verticalCenter: parent.verticalCenter
                         text: "iCloud 监控"
                         color: Theme.textHi
@@ -260,7 +288,7 @@ ApplicationWindow {
                             font.bold: true
                         }
 
-                        Switch {
+                        AppSwitch {
                             id: icloudSwitch
                             // 开关状态完全由后端进程事实驱动:
                             // 用户点击 -> 调 restart 而不是直接改 checked
@@ -272,78 +300,36 @@ ApplicationWindow {
                                     checked = Bridge.icloudRunning
                                 }
                             }
-
-                            contentItem: Rectangle {
-                                implicitWidth: 42
-                                implicitHeight: 20
-                                radius: 10
-                                color: icloudSwitch.checked ? Theme.ok : Theme.bgInput
-                                border.color: icloudSwitch.checked ? Theme.ok
-                                                                  : Theme.borderHi
-                                opacity: icloudSwitch.enabled ? 1.0 : 0.5
-                                Behavior on color { ColorAnimation { duration: 160 } }
-
-                                Rectangle {
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    x: icloudSwitch.checked
-                                       ? parent.width - width - 2 : 2
-                                    width: 16; height: 16; radius: 8
-                                    color: "#ffffff"
-                                    Behavior on x {
-                                        NumberAnimation { duration: 160
-                                                          easing.type: Easing.OutCubic }
-                                    }
-                                }
-                            }
                         }
 
-                        Button {
+                        AppButton {
                             id: restartBtn
+                            kind: "ghost"
+                            minW: 72
                             text: Bridge.busyRestarting ? "重启中..." : "重启"
                             enabled: !Bridge.busyRestarting
                             onClicked: Bridge.restartIcloud()
                             ToolTip.visible: hovered
                             ToolTip.text: "结束全部 iCloud 进程后重新启动"
                             ToolTip.delay: 600
-
-                            contentItem: Label {
-                                text: restartBtn.text
-                                color: restartBtn.enabled ? Theme.textHi : Theme.textLo
-                                horizontalAlignment: Text.AlignHCenter
-                                verticalAlignment: Text.AlignVCenter
-                                font.pixelSize: Theme.fsSmall
-                            }
-                            background: Rectangle {
-                                implicitWidth: 72
-                                implicitHeight: 30
-                                radius: Theme.radius
-                                color: restartBtn.hovered ? Theme.bgHover : Theme.bgCard
-                                border.color: Theme.borderHi
-                            }
                         }
                     }
 
-                    Button {
+                    // 打开 iCloud 目录。
+                    // 原来是 📂 emoji —— 彩色位图不受主题控制, 夹在一排单色图标里
+                    // 最显眼, 这就是"打开云盘图标有点突兀"的来源。
+                    // 改用 NavIcon 的 folder 图元: 与其它图标同一套线条、同一套
+                    // 主题色, 尺寸也对齐按钮高度。
+                    AppButton {
                         id: openDriveBtn
-                        width: 34; height: 30
+                        kind: "quiet"
+                        iconKind: "folder"
+                        minW: 34
+                        padH: 8
                         onClicked: Bridge.openDriveRoot()
                         ToolTip.visible: hovered
                         ToolTip.text: "打开 iCloud 目录\n" + Bridge.driveRoot
                         ToolTip.delay: 600
-
-                        contentItem: Text {
-                            text: "📂"
-                            color: openDriveBtn.hovered ? Theme.infoHi : Theme.textMid
-                            font.pixelSize: 15
-                            horizontalAlignment: Text.AlignHCenter
-                            verticalAlignment: Text.AlignVCenter
-                        }
-                        background: Rectangle {
-                            radius: Theme.radius
-                            color: openDriveBtn.hovered ? Theme.bgHover : "transparent"
-                            border.color: openDriveBtn.hovered ? Theme.borderHi
-                                                               : "transparent"
-                        }
                     }
                 }
             }
