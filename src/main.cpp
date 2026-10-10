@@ -416,7 +416,9 @@ int main(int argc, char *argv[])
 
     QGuiApplication app(argc, argv);
     app.setApplicationName(QStringLiteral("iCloudMon"));
-    app.setApplicationDisplayName(QStringLiteral("iCloud 状态监控"));
+    // 刻意**不**设 setApplicationDisplayName: 它在部分 Windows 环境下会被追加到
+    // 窗口标题栏, 而 QML 的 title 已含"iCloud 状态监控", 叠加后标题重复成
+    // "iCloud 状态监控 v1.0.1 - 同步中 - iCloud 状态监控"。窗口标题由 QML 唯一提供。
     app.setOrganizationName(QStringLiteral("zvozve"));
     app.setApplicationVersion(QStringLiteral("1.0.1"));
 
@@ -541,6 +543,15 @@ int main(int argc, char *argv[])
 
     // 图形后端信息: 只有它出现后才能确定是不是软件渲染
     logGraphicsBackend(engine);
+
+    // 记录真实窗口标题(setApplicationDisplayName 在部分 Windows 环境下会被
+    // 系统追加到窗口标题, 与 QML 的 title 叠加会造成标题重复)
+    if (!engine.rootObjects().isEmpty()) {
+        if (auto *w = qobject_cast<QQuickWindow *>(
+                engine.rootObjects().constFirst()))
+            icloud::log::info(QStringLiteral("[RUN] 窗口标题: \"%1\"")
+                                  .arg(w->title()));
+    }
 
     // 单实例: 后续任何实例连进来, 把这个已存在的窗口调到前台。
     // 捕获窗口裸指针(由 engine 拥有, 活到app.exec() 返回), 安全。
