@@ -58,14 +58,22 @@ Item {
             }
 
             // ── 上传 / 下载 / 删除 三个队列 ──
+            //
+            // ★ 原来这里是 Layout.preferredHeight: 200 —— 写死的。
+            //   但三个面板的实际内容只有"标题20 + 进度条8 + 详情34 ≈ 66px",
+            //   剩下 130 多 px 全是空白。三个并排就是 **400px 的纯空白**,
+            //   页面因此要滚很久才看到下面的内容。
+            //   QueuePanel 内部是 ColumnLayout + anchors.fill, 本身就能
+            //   按内容自撑高, 直接让 RowLayout 按子项 implicitHeight 排布。
             RowLayout {
                 Layout.fillWidth: true
-                Layout.preferredHeight: 200
                 spacing: Theme.sp
 
                 QueuePanel {
                     Layout.fillWidth: true
-                    Layout.fillHeight: true
+                    // 不要 Layout.fillHeight: 面板高度由内容决定。
+                    // RowLayout 会自动把同一行子项的高度对齐到最高者,
+                    // 所以三个面板底边仍然齐平, 不用靠 fillHeight 硬撑。
                     title: "上传"
                     accent: Theme.up
                     done: Bridge.upDone
@@ -78,7 +86,9 @@ Item {
 
                 QueuePanel {
                     Layout.fillWidth: true
-                    Layout.fillHeight: true
+                    // 不要 Layout.fillHeight: 面板高度由内容决定。
+                    // RowLayout 会自动把同一行子项的高度对齐到最高者,
+                    // 所以三个面板底边仍然齐平, 不用靠 fillHeight 硬撑。
                     title: "下载"
                     accent: Theme.down
                     done: Bridge.dlDone
@@ -102,7 +112,9 @@ Item {
                 // "回收站 N 项", 不再画进度条。
                 QueuePanel {
                     Layout.fillWidth: true
-                    Layout.fillHeight: true
+                    // 不要 Layout.fillHeight: 面板高度由内容决定。
+                    // RowLayout 会自动把同一行子项的高度对齐到最高者,
+                    // 所以三个面板底边仍然齐平, 不用靠 fillHeight 硬撑。
                     title: "删除"
                     accent: Theme.err
                     done: Bridge.delDone
@@ -119,22 +131,39 @@ Item {
             }
 
             // ── 云端状态分布 ──
+            //
+            // 不再写死 300(实际内容 ~170, 白占 130px)。
+            // PcsPanel 自己按 buckets 条数算 implicitHeight。
             PcsPanel {
                 Layout.fillWidth: true
-                Layout.preferredHeight: 300
             }
 
             // ── 待处理项明细 ──
             Rectangle {
                 Layout.fillWidth: true
-                Layout.preferredHeight: 360
+                // ★ 原来写死 360。实测绝大多数时候里面只有 0~2 条
+                //   (正常同步状态就是 0 条), 却恒占 360px —— 页面因此要滚
+                //   很久才看到下面的回收站, 而中间是一大片空白。
+                //   改成按内容算高度:
+                //     表头(约 20) + 本地未提交(最多 6 条 × 26) + 分隔线(1)
+                //     + 云端列表(最多 8 行 × 26, 超过就滚动)
+                //   再用上下限兜住: 太少不低于 110(表头+空态提示),
+                //   太多不超过 340(否则又变成长空白)。中间值即所需高度。
+                readonly property int localRows: Math.min(6, Bridge.localPendings.count)
+                readonly property int cloudRows: Math.min(8, Bridge.pendingItems.count)
+                Layout.preferredHeight: Math.max(110, Math.min(340,
+                                     Theme.sp * 2
+                                     + 20 + 6
+                                     + localRows * 26
+                                     + (localRows > 0 && cloudRows > 0 ? 7 : 0)
+                                     + cloudRows * 26
+                                     + 30))
                 color: Theme.bgPanel
                 radius: Theme.radius
                 border.color: Theme.border
                 border.width: 1
-                // ★ 必须 clip: 本面板高度固定(360), 而内部"本地未提交"是
-                //   Repeater(本身不可滚动), 条目一多会超出面板。不裁剪的话
-                //   内容直接画到面板外面的空白页面上, 看起来像界面错乱。
+                // 必须 clip: 内部"本地未提交"是 Repeater(不可滚动),
+                // 条目一多会超出面板。不裁剪的话内容会画到面板外面。
                 clip: true
 
                 ColumnLayout {
@@ -352,11 +381,18 @@ Item {
             // ── 回收站(删除队列的另一面) ──
             Rectangle {
                 Layout.fillWidth: true
-                Layout.preferredHeight: 240
+                // 同待处理项: 原来写死 240, 空回收站时白占一整块。
+                // 按内容算: 表头 + 最多 8 行 × 24(超过滚动) + 空态提示,
+                // 下限 96(表头 + "回收站为空"), 上限 300。
+                Layout.preferredHeight: Math.max(96, Math.min(300,
+                                     Theme.sp * 2 + 20 + 6
+                                     + Math.min(8, Bridge.trashItems.count) * 26
+                                     + 30))
                 color: Theme.bgPanel
                 radius: Theme.radius
                 border.color: Theme.border
                 border.width: 1
+                clip: true
 
                 ColumnLayout {
                     anchors.fill: parent

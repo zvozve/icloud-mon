@@ -14,6 +14,12 @@ Rectangle {
     border.color: Theme.border
     border.width: 1
 
+    // ★ Rectangle 的默认 implicitHeight 是 0, 外层去掉写死的 300 之后,
+    //   必须自己提供高度, 否则整个面板会塌成一条线。
+    //   构成: 标题行(约 18) + 每行 34 + 行间距 8×n + 间隔 6 + 底部说明(约 14)
+    //   + 上下边距(sp×2)。这里按 buckets 实际条数算, 内容变了高度跟着变。
+    implicitHeight: Theme.sp * 2 + 18 + buckets.length * (34 + 8) + 6 + 14
+
     // 由 C++ Bridge.pcsBuckets 注入: [{pcsState,count,bytes,label}, ...]
     property var buckets: Bridge.pcsBuckets
     property int maxCount: {
@@ -132,7 +138,11 @@ Rectangle {
             }
         }
 
-        Item { Layout.fillHeight: true }
+        // ★ 原来这里是 Item { Layout.fillHeight: true } —— 纯弹性占位,
+        //   把底部那行说明文字顶到面板最下端, 中间空出 130px。
+        //   面板高度已改为按内容自撑高(见 DrivePage), 不再需要弹性撑开。
+        //   改成固定 6px 间隔, 让说明文字紧跟在分布列表下面。
+        Item { Layout.preferredHeight: 6; Layout.fillWidth: true }
 
         Label {
             text: "有本地实体 = 已下载到本机; 仅云端 = 按需下载"

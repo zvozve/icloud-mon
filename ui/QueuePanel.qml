@@ -24,6 +24,12 @@ Rectangle {
     // 叫"待处理"会让人看不出是删除。
     property string countLabel: "待处理"
 
+    // ★ Rectangle 默认 implicitHeight 为 0。外层原本写死 200, 去掉之后
+    //   必须自己算高度, 否则三个面板会塌成线。
+    //   构成: 标题行(约 20) + 进度条 8(或隐藏时的同高占位 8)
+    //        + 间隔 4 + 详情行(约 34) + 上下边距(sp×2)
+    implicitHeight: Theme.sp * 2 + 20 + 8 + 4 + 34
+
     // 删除队列没有"进度"概念。
     //
     // 原来它复用 done/total 画进度条, 而删除的 done = 回收站项数、
@@ -121,7 +127,13 @@ Rectangle {
             visible: root.noProgress
         }
 
-        Item { Layout.fillHeight: true; Layout.preferredHeight: 4 }
+        // ★ 原来这里是 Item { Layout.fillHeight: true; Layout.preferredHeight: 4 }
+        //   作用是把底部"待处理/待传输"压到面板最下端, 中间留白。
+        //   在"面板高度写死 200"的前提下这看着合理, 但面板一改成按内容
+        //   自撑高, 这个 fillHeight 就会变成"索取剩余空间"的请求 ——
+        //   它正是那 130px 空白的来源。现在高度由内容决定, 不需要弹性撑开。
+        //   改成固定 4px 的间隔, 内容紧凑排列。
+        Item { Layout.preferredHeight: 4; Layout.fillWidth: true }
 
         // ── 待处理详情 ──
         RowLayout {
