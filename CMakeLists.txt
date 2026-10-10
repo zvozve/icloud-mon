@@ -58,8 +58,17 @@ find_package(Qt5 5.15 REQUIRED COMPONENTS
 add_library(spdlog_header_only INTERFACE)
 target_include_directories(spdlog_header_only INTERFACE
     ${CMAKE_CURRENT_SOURCE_DIR}/third_party/spdlog/include)
-# SPDLOG_HEADER_ONLY 必须 PRIVATE: 这宏会污染编译期命名空间, 不能外泄
-target_compile_definitions(spdlog_header_only INTERFACE SPDLOG_HEADER_ONLY)
+# ★ 刻意**不**在这里定义 SPDLOG_HEADER_ONLY。
+#   spdlog 自己的 spdlog/common.h 里已经有一句无条件的
+#     #if !defined(SPDLOG_COMPILED_LIB)
+#     #  define SPDLOG_HEADER_ONLY
+#     #endif
+#   也就是说"没定义 SPDLOG_COMPILED_LIB 就等于 header-only 模式",
+#   是 spdlog 的默认行为。再用 -D 从命令行补一遍就是**重复定义**,
+#   MSVC 每编一个 TU 都报一次
+#     warning C4005: 'SPDLOG_HEADER_ONLY': 宏重定义
+#   (之前一次改 5 个文件, 刷出十几条一模一样的警告, 噪声极大)。
+#   要切回 compiled 模式时, 定义 SPDLOG_COMPILED_LIB 才是对的开关。
 
 # ======================================================================
 #  exe 的 PE 资源(图标 + 版本信息)
@@ -102,12 +111,14 @@ add_executable(iCloudMon WIN32
     src/IcloudService.cpp
     src/AutoStart.cpp
     src/Log.cpp
+    src/NotificationHub.cpp
     # 头文件必须显式列出: AUTOMOC 只扫描 target sources 里的文件,
     # 放在 inc/ 下不列出来的话 moc 不会被触发, 表现为
     # "无法解析的外部符号 staticMetaObject / qt_metacall ..."。
     inc/Bridge.h
     inc/IcloudMonitor.h
     inc/IcloudCategories.h
+    inc/NotificationHub.h
     inc/IcloudService.h
     inc/IcloudSnapshot.h
     inc/AutoStart.h

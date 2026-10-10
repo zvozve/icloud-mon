@@ -35,6 +35,7 @@
 #include <QTimer>
 
 #include "Bridge.h"
+#include "NotificationHub.h"
 #include "IcloudPaths.h"
 #include "Log.h"
 
@@ -430,6 +431,14 @@ int main(int argc, char *argv[])
         qputenv("QT_QUICK_BACKEND", "software");
     }
 
+    // ★ 系统通知不再走 QSystemTrayIcon::showMessage。
+    //   实测它在本机走 WinRT Toast COM 会死锁(主线程是 MTA、Toast 需 STA,
+    //   marshaling 直接挂死) —— 点"测试通知"精确卡死在 showMessage 一句
+    //   (日志里"已投递"之前的行有、之后的行没有, 进程被强杀)。
+    //   改用自建置顶浮层 Toast.qml(见 NotificationHub + Main.qml 里的
+    //   <Toast/>): 纯 Qt Quick、绝不阻塞、且独立置顶窗口, 主窗口最小化
+    //   时也能弹出来(满足"iCloud 卡死时人在别的程序"的提醒需求)。
+
     QGuiApplication app(argc, argv);
     app.setApplicationName(QStringLiteral("iCloudMon"));
     // 刻意**不**设 setApplicationDisplayName: 它在部分 Windows 环境下会被追加到
@@ -546,6 +555,18 @@ int main(int argc, char *argv[])
         QStringLiteral("Bridge"), &bridge);
     engine.rootContext()->setContextProperty(
         QStringLiteral("AppVersion"), app.applicationVersion());
+
+    // 浮层通知中枢: 取代会死锁的 QSystemTrayIcon::showMessage。
+    // systemNotify(测试通知 / 卡死告警)走这里, QML 侧 Toast.qml 监听显示。
+    icloud::NotificationHub notifier;
+    engine.rootContext()->setContextProperty(
+        QStringLiteral("Notifier"), &notifier);
+    QObject::connect(
+        &bridge, &icloud::Bridge::systemNotify, &notifier,
+        [&notifier](const QString &title, const QString &detail) {
+            notifier.post(QStringLiteral("system"), title, detail);
+        });
+
     // 注意: 这里不注入 DriveRoot —— 同步根目录可被用户修改,
     // 注入的是启动快照, 改完不会刷新。统一走 Bridge.driveRoot 属性。
 
@@ -595,14 +616,13 @@ int main(int argc, char *argv[])
     setupScreenshotHook(engine, app);
 
     // ══════════════════════════════════════════════════════════════
-    //  系统托盘 + 卡死告警的 Windows 系统通知
+    //  系统托盘
     //
-    //  为什么必须用托盘: Windows 上没有托盘图标就弹不出系统通知
-    //  (Shell_NotifyIcon 的 NIF_INFO 前提是有托盘项)。窗口最小化或在
-    //  别的虚拟桌面时, 界面内的 Toast 根本看不到, 只有系统通知能提醒到人。
-    //
-    //  这里刻意不建右键菜单(QMenu 属于控件, 只有 QGuiApplication 时
-    //  创建控件是不受支持的)。托盘只承担"显示通知"这一个职责。
+    //  托盘只承担"常驻图标"这一个职责(便于从托盘唤起窗口)。
+    //  卡死告警 / 测试通知改为自建置顶浮层 Toast.qml 弹出 ——
+    //  见 NotificationHub + Main.qml 里的 <Toast/>。原因: 本机
+    //  QSystemTrayIcon::showMessage 走 WinRT Toast COM 会死锁(详见上方
+    //  注释), 自建浮层是纯 Qt Quick、绝不阻塞、且最小化时也能看到。
     // ══════════════════════════════════════════════════════════════
     QSystemTrayIcon *tray = nullptr;
     if (QSystemTrayIcon::isSystemTrayAvailable()) {
@@ -610,7 +630,7 @@ int main(int argc, char *argv[])
         tray->setToolTip(QStringLiteral("iCloud 状态监控"));
         tray->show();
         icloud::log::info(
-            QStringLiteral("[RUN] 系统托盘已启用, 卡死告警将弹系统通知"));
+            QStringLiteral("[RUN] 系统托盘已启用(通知走置顶浮层, 见 Toast.qml)"));
     } else {
         icloud::log::warn(QStringLiteral(
             "[RUN] 系统托盘不可用, 卡死告警只能记日志(不会弹通知)"));
@@ -626,17 +646,6 @@ int main(int argc, char *argv[])
         QObject::connect(&app, &QCoreApplication::aboutToQuit, tray, [tray]() {
             tray->hide();
         });
-
-        QObject::connect(
-            &bridge, &icloud::Bridge::systemNotify, tray,
-            [tray](const QString &title, const QString &detail) {
-                // 第 4 参是毫秒; Windows 上正文过长会被系统截断
-                tray->showMessage(title, detail, QSystemTrayIcon::Warning,
-                                  15000);
-                icloud::log::info(
-                    QStringLiteral("[RUN] 已弹出系统通知: %1 | %2")
-                        .arg(title, detail));
-            });
     }
 
     icloud::log::info(QStringLiteral("[RUN] 界面加载完成, 进入事件循环"));

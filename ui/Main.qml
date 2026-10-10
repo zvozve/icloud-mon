@@ -408,4 +408,8 @@ ApplicationWindow {
             onClicked: win.toastText = ""
         }
     }
+
+    // 置顶浮层通知窗口(测试通知 / 卡死告警)。独立于主窗口, 最小化时也能弹出。
+    // 内部监听 Notifier.requested, 取代会死锁的 QSystemTrayIcon::showMessage。
+    Toast { }
 }

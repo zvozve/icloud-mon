@@ -16,6 +16,31 @@
 
 namespace icloud {
 
+namespace {
+
+// ★ 打开目录/文件 —— 统一走 QDesktopServices, 不直接 explorer.exe。
+//
+// 为什么不用 `QProcess::startDetached("explorer.exe", { dir })`:
+//   explorer.exe 对参数的解析很挑, 实测有两个坑:
+//     ① 路径无法识别时**不报错, 而是静默回退打开默认目录(Documents)** ——
+//        表现就是"点了云盘回收站, 跳到文档目录去了", 极难自查。
+//     ② `/select,<路径>` 这种"参数与值连在一起"的写法要求中间无空格,
+//        经QProcess 传数组后引号化行为不一致, 选中经常失效。
+//   QDesktopServices 内部走 ShellExecute/ShellAPI, 路径按系统规则处理,
+//   失败时返回 false 可以据实报错, 不会静默跑去别处。
+bool openInShell(const QString &path)
+{
+    const QString clean = QDir::cleanPath(QDir::fromNativeSeparators(path));
+    const QUrl url = QUrl::fromLocalFile(clean);
+    if (!QDesktopServices::openUrl(url)) {
+        log::warn(QStringLiteral("打开失败(ShellAPI 拒绝): %1").arg(clean));
+        return false;
+    }
+    return true;
+}
+
+}  // namespace
+
 Bridge::Bridge(QObject *parent)
     : QObject(parent)
     , m_monitor(new IcloudMonitor(this))
@@ -205,12 +230,19 @@ void Bridge::openItemLocation(const QString &raw)
     if (fi.exists()) {
         if (fi.isDir()) {
             log::userAction(QStringLiteral("打开目录"), path);
-            QProcess::startDetached(QStringLiteral("explorer.exe"), { path });
+            if (!openInShell(path))
+                emit notify(QStringLiteral("error"),
+                            QStringLiteral("无法打开目录: %1").arg(path));
         } else {
             log::userAction(QStringLiteral("定位文件"), path);
-            // explorer 的 /select, 后面**不能有空格**, 参数是一个整体
-            QProcess::startDetached(QStringLiteral("explorer.exe"),
-                                    { QStringLiteral("/select,") + path });
+            // explorer 的 /select, 后面**不能有空格**, 参数是一个整体。
+            // 同样交给 ShellAPI: 直接 openUrl 会打开文件而不是"选中"它,
+            // 所以这里仍走 explorer, 但用 QProcess::splitCommand 的
+            // 单字符串形式自己拼, 避免 QProcess 各自引号化破坏整体性。
+            const QString cmd = QStringLiteral("explorer.exe /select,")
+                                + QDir::toNativeSeparators(path);
+            if (!QProcess::startDetached(cmd))
+                openInShell(path);      // 退一步: 至少把所在目录打开
         }
         return;
     }
@@ -223,7 +255,7 @@ void Bridge::openItemLocation(const QString &raw)
                             QStringLiteral("%1 -> %2").arg(path, dir));
             emit notify(QStringLiteral("warn"),
                         QStringLiteral("目标尚未落到本地，已打开所在目录"));
-            QProcess::startDetached(QStringLiteral("explorer.exe"), { dir });
+            openInShell(dir);
             return;
         }
         const QString parent = QDir(dir).absolutePath();
@@ -259,7 +291,7 @@ void Bridge::openTrashLocation(const QString &originalPath)
                             QStringLiteral("%1 -> %2").arg(file, dir));
             emit notify(QStringLiteral("ok"),
                         QStringLiteral("文件已删除，已打开其原所在目录:\n%1").arg(dir));
-            QProcess::startDetached(QStringLiteral("explorer.exe"), { dir });
+            openInShell(dir);
             return;
         }
         const QString parent = QDir(dir).absolutePath();
@@ -297,9 +329,9 @@ void Bridge::openLogDir()
         return;
     }
     log::userAction(QStringLiteral("打开日志目录"), dir);
-    // 用 explorer 而不是 QProcess::startDetached("cmd") ——
-    // 后者在中文系统上容易因编码问题起不来
-    QProcess::startDetached(QStringLiteral("explorer.exe"), { dir });
+    // 统一走 ShellAPI —— explorer.exe 解析不了参数时会静默回退到
+    // 默认目录(Documents), 表现为"点了没去日志目录, 跳到文档去了"。
+    openInShell(dir);
 }
 
 // ── 同步根目录 ────────────────────────────────────────────────────
@@ -318,7 +350,7 @@ void Bridge::openDriveRoot()
         return;
     }
     log::userAction(QStringLiteral("打开 iCloud 目录"), dir);
-    QProcess::startDetached(QStringLiteral("explorer.exe"), { dir });
+    openInShell(dir);
 }
 
 void Bridge::openCloudTrash()
@@ -335,7 +367,21 @@ void Bridge::openCloudTrash()
         return;
     }
     log::userAction(QStringLiteral("打开 iCloud 回收站"), dir);
-    QProcess::startDetached(QStringLiteral("explorer.exe"), { dir });
+    // ★ 这里以前是 `QProcess::startDetached("explorer.exe", { dir })`,
+    //   结果**点了会跳到 Documents 目录**。
+    //   原因: explorer.exe 收到 `.Trash` 这种以点开头的目录参数时
+    //   解析失败, 而它**不报错、直接回退打开默认目录**, 静默得没法查。
+    //   `.Trash` 里通常也没有可显示的内容(回收站条目在数据库里),
+    //   打开一个空目录意义不大 —— 顺带在这里说清楚"回收站有多少项"。
+    const QDir d(dir);
+    const QStringList entries = d.entryList(QDir::AllEntries | QDir::NoDotAndDotDot);
+    if (entries.isEmpty()) {
+        emit notify(QStringLiteral("info"),
+                    QStringLiteral("iCloud 回收站是空的（当前 0 项）\n目录: %1").arg(dir));
+    }
+    if (!openInShell(dir))
+        emit notify(QStringLiteral("error"),
+                    QStringLiteral("无法打开 iCloud 回收站: %1").arg(dir));
 }
 
 void Bridge::openSystemTrash()
@@ -442,16 +488,16 @@ void Bridge::onAnomaly(const QString &kind, const QString &title,
     // 每次都弹的话, 持续卡死状态下 Toast 动画会被每 5 秒重启一次,
     // 既是持续打扰, 也让界面反复重绘。
     if (!wasAnomalous || isNewKind) {
-        emit notify(kind == QStringLiteral("卡死") ? QStringLiteral("error")
-                                                   : QStringLiteral("warn"),
-                    QStringLiteral("[%1] %2").arg(kind, title));
-        // 卡死是新出现时, 额外请求一次 Windows 系统通知。
-        // 窗口最小化或在别的桌面时, 界面内的 Toast 是看不到的, 只有系统
-        // 通知能真正提醒到人。
+        // 卡死 -> 走置顶浮层系统通知(跨应用可见, 见 Toast.qml);
+        // 其他异常 -> 走窗口内 Toast(notify)。两者分开, 避免一次卡死
+        // 同时弹两条。
         if (kind == QStringLiteral("卡死")) {
             log::userAction(QStringLiteral("卡死告警触发系统通知"),
                             QStringLiteral("停滞 %1").arg(detail));
             emit systemNotify(title, detail);
+        } else {
+            emit notify(QStringLiteral("warn"),
+                        QStringLiteral("[%1] %2").arg(kind, title));
         }
     }
 }

@@ -525,6 +525,18 @@ Item {
                             && orderList.dropIndex === index
                             && orderList.dragIndex !== index
 
+                        // 正在被拖的那一行: 提亮 + 半透明 + 抬层级, 让用户
+                        // 明确看到"这一行正在被拖"。不做跟随手指的位移 ——
+                        // 那是 delegate 的 y, 由 ListView 管, 改会和布局打架。
+                        readonly property bool isDragging:
+                            orderList.dragIndex === index
+
+                        z: isDragging ? 10 : 0
+                        opacity: isDragging ? 0.7 : 1.0
+                        scale: isDragging ? 1.02 : 1.0
+                        Behavior on opacity { NumberAnimation { duration: 90 } }
+                        Behavior on scale { NumberAnimation { duration: 90 } }
+
                         contentItem: RowLayout {
                             spacing: 8
 
@@ -545,30 +557,6 @@ Item {
                                 Layout.minimumWidth: 0
                                 elide: Text.ElideRight
                                 Layout.alignment: Qt.AlignVCenter
-                            }
-
-                            AppButton {
-                                kind: "ghost"
-                                minW: 32
-                                padH: 6
-                                text: "\u2191"
-                                enabled: index > 0
-                                onClicked: Bridge.moveCategory(orderRow.modelData, -1)
-                                ToolTip.visible: hovered
-                                ToolTip.text: "上移"
-                                ToolTip.delay: 600
-                            }
-
-                            AppButton {
-                                kind: "ghost"
-                                minW: 32
-                                padH: 6
-                                text: "\u2193"
-                                enabled: index < Bridge.navOrder.length - 1
-                                onClicked: Bridge.moveCategory(orderRow.modelData, 1)
-                                ToolTip.visible: hovered
-                                ToolTip.text: "下移"
-                                ToolTip.delay: 600
                             }
                         }
 
@@ -593,38 +581,53 @@ Item {
                         MouseArea {
                             id: dragArea
                             anchors.fill: parent
-                            // 按钮区域不触发拖拽(否则点 ↑↓ 会同时启动拖动)
-                            anchors.rightMargin: 76
                             drag.target: null
                             drag.axis: Drag.YAxis
                             drag.minimumY: 0
                             drag.maximumY: orderList.height - height
 
                             onPressed: {
+                                pressY = mouseY
+                                pressIndex = orderRow.index
                                 orderList.dragIndex = orderRow.index
                                 orderList.dropIndex = orderRow.index
                             }
-                            // ★ 松手时才提交: 按住拖到目标位置 -> 显示插入线 ->
-                            //   松开 -> 调 moveCategoryTo 落到目标位。
                             onReleased: {
-                                if (orderList.dragIndex >= 0
-                                        && orderList.dropIndex >= 0
-                                        && orderList.dropIndex !== orderRow.index)
-                                    Bridge.moveCategoryTo(orderRow.modelData,
-                                                          orderList.dropIndex)
+                                const from = orderList.dragIndex
+                                const to = orderList.dropIndex
+                                // 先清状态再提交: moveCategoryTo 会 emit
+                                // navOrderChanged 让整个 ListView 重建, 此时
+                                // dragIndex 若还指着已销毁的旧行, 下一行代理
+                                // 初始化时会读到脏值。
                                 orderList.dragIndex = -1
                                 orderList.dropIndex = -1
+                                if (from >= 0 && to >= 0 && to !== from)
+                                    Bridge.moveCategoryTo(orderRow.modelData, to)
                             }
+                            // ★ 用**位移量**算落点, 不再用 indexAt 反推。
+                            //
+                            // 原来靠 `orderList.indexAt(0, mapToItem 出来的 y)`
+                            // 反推行号, 三个问题叠加, 结果是"拖拽完全没用":
+                            //   ① indexAt 少传参数时抛 "Insufficient arguments",
+                            //      异常在 onPositionChanged 里反复触发(日志实测
+                            //      171 次), dropIndex 一次都没更新成功;
+                            //   ② 指针落在两行间隙时返回 -1, 兜底又退回本行
+                            //      -> dropIndex 恒等于 index, 松手直接 return;
+                            //   ③ 即便参数补对, 这条路径仍依赖 indexAt 的
+                            //      边界语义, 不够直接。
+                            // 现在记住按下位置, 按位移量折算成"移动了几行",
+                            // 再夹到合法范围。纯算术, 不查坐标, 无间隙问题。
+                            property real pressY: 0
+                            property int pressIndex: -1
+
                             onPositionChanged: {
                                 if (orderList.dragIndex !== orderRow.index)
                                     return
-                                // 手指纵向位置 -> 落在哪一行
-                                var y = dragArea.mapToItem(orderList,
-                                                            dragArea.mouseX,
-                                                            dragArea.mouseY).y
-                                var idx = orderList.indexAt(y + orderRow.height / 2)
-                                orderList.dropIndex = idx >= 0 ? idx
-                                                             : orderRow.index
+                                const moved = Math.round(
+                                    (mouseY - pressY) / orderRow.height)
+                                const target = pressIndex + moved
+                                orderList.dropIndex = Math.max(
+                                    0, Math.min(orderList.count - 1, target))
                             }
                         }
                     }
