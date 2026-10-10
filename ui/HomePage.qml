@@ -13,6 +13,17 @@ import QtQuick.Layouts 1.15
 Item {
     id: page
 
+    // 只显示**已启用**的类别。需求: 设置里关掉的类别, 主页与侧边栏一致隐藏。
+    // 直接给 Repeater 一个过滤后的数组即可 —— 委托仍然拿 modelData.enabled
+    // 等字段, 结构不变。
+    readonly property var enabledCats: {
+        var list = Bridge.categories
+        var out = []
+        for (var i = 0; i < list.length; ++i)
+            if (list[i].enabled === true) out.push(list[i])
+        return out
+    }
+
     Flickable {
         id: body
         anchors.fill: parent
@@ -46,13 +57,13 @@ Item {
             }
 
             Label {
-                text: "点卡片进入对应页面看细节。未启用的类别已灰化标注。"
+                text: "点卡片进入对应页面看细节。未启用的类别已隐藏(可在设置里改)。"
                 color: Theme.textLo
                 font.pixelSize: Theme.fsSmall
             }
 
             Repeater {
-                model: Bridge.categories
+                model: page.enabledCats
 
                 delegate: Rectangle {
                     id: card

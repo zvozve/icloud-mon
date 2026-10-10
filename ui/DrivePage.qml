@@ -165,11 +165,14 @@ Item {
                         delegate: Rectangle {
                             required property string name
                             required property string stateText
+                            required property string path
+                            id: lpRow
                             // 这个 delegate 属于 Repeater, 不是 ListView;
                             // 父级是 ColumnLayout, 宽度交给 Layout 管理。
                             Layout.fillWidth: true
                             height: 26
-                            color: Theme.bgCard
+                            color: lpMouse.containsMouse ? Theme.bgHover
+                                                         : Theme.bgCard
                             radius: 3
 
                             RowLayout {
@@ -183,23 +186,35 @@ Item {
                                     color: Theme.warn
                                 }
                                 Label {
-                                    text: name
+                                    text: lpRow.name
                                     color: Theme.textMid
                                     font.pixelSize: Theme.fsSmall
                                     elide: Text.ElideMiddle
                                     Layout.fillWidth: true
                                 }
                                 Label {
-                                    text: stateText
+                                    text: lpRow.stateText
                                     color: Theme.warn
                                     font.pixelSize: Theme.fsTiny
                                 }
                             }
 
+                            // 点整行在资源管理器里定位到该文件
+                            MouseArea {
+                                id: lpMouse
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: Bridge.openItemLocation(lpRow.path)
+                            }
+
                             // HoverHandler 的属性是 hovered, 没有 containsMouse
-                            ToolTip.visible: nameArea.hovered
-                            ToolTip.text: name
-                            HoverHandler { id: nameArea }
+                            ToolTip.visible: lpMouse.containsMouse
+                            ToolTip.text: lpRow.path !== ""
+                                          ? (lpRow.name + "\n" + lpRow.path
+                                             + "\n(点击定位)")
+                                          : (lpRow.name + "\n(无路径)")
+                            ToolTip.delay: 400
                         }
                     }
 
@@ -224,12 +239,15 @@ Item {
                             required property string name
                             required property string sizeText
                             required property bool isDir
+                            required property string path
                             // delegate 声明了 required property 之后, index
                             // 不再自动注入, 必须自己声明
                             required property int index
+                            id: piRow
                             width: ListView.view.width
                             height: 24
-                            color: index % 2 === 0 ? "transparent" : Theme.bgPanel
+                            color: piMouse.containsMouse ? Theme.bgHover
+                                : (index % 2 === 0 ? "transparent" : Theme.bgPanel)
 
                             RowLayout {
                                 anchors.fill: parent
@@ -241,23 +259,40 @@ Item {
                                 // 而且不同 Windows 版本的 emoji 字形差别很大。
                                 // 换成与导航栏同一套的单色图元。
                                 NavIcon {
-                                    kind: isDir ? "folder" : "file"
+                                    kind: piRow.isDir ? "folder" : "file"
                                     color: Theme.textLo
                                     Layout.alignment: Qt.AlignVCenter
                                 }
                                 Label {
-                                    text: name
+                                    text: piRow.name
                                     color: Theme.textMid
                                     font.pixelSize: Theme.fsSmall
                                     elide: Text.ElideMiddle
                                     Layout.fillWidth: true
                                 }
                                 Label {
-                                    text: sizeText
+                                    text: piRow.sizeText
                                     color: Theme.textLo
                                     font.pixelSize: Theme.fsTiny
                                 }
                             }
+
+                            // 点整行定位。该项可能还没落到本地, Bridge 会降级
+                            // 打开最近的上级目录并提示。
+                            MouseArea {
+                                id: piMouse
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: Bridge.openItemLocation(piRow.path)
+                            }
+
+                            ToolTip.visible: piMouse.containsMouse
+                            ToolTip.text: piRow.path !== ""
+                                          ? (piRow.name + "\n" + piRow.path
+                                             + "\n(点击定位)")
+                                          : (piRow.name + "\n(无路径, 无法定位)")
+                            ToolTip.delay: 400
                         }
                     }
 
@@ -316,9 +351,11 @@ Item {
                             required property string name
                             required property string restorePath
                             required property int index
+                            id: trRow
                             width: ListView.view.width
                             height: 28
-                            color: index % 2 === 0 ? "transparent" : Theme.bgCard
+                            color: trMouse.containsMouse ? Theme.bgHover
+                                : (index % 2 === 0 ? "transparent" : Theme.bgCard)
 
                             RowLayout {
                                 anchors.fill: parent
@@ -327,7 +364,7 @@ Item {
                                 spacing: 6
 
                                 Label {
-                                    text: name
+                                    text: trRow.name
                                     color: Theme.textMid
                                     font.pixelSize: Theme.fsSmall
                                     elide: Text.ElideMiddle
@@ -336,7 +373,7 @@ Item {
                                 Label {
                                     // 原始路径: 光看名字认不出是什么,
                                     // 原路径才能判断该不该恢复
-                                    text: "原位于 " + restorePath
+                                    text: "原位于 " + trRow.restorePath
                                     color: Theme.textLo
                                     font.pixelSize: Theme.fsTiny
                                     elide: Text.ElideLeft
@@ -344,10 +381,22 @@ Item {
                                 }
                             }
 
-                            ToolTip.visible: trashHover.hovered
-                            ToolTip.text: "原名: " + name + "\n原路径: " + restorePath
-                            ToolTip.delay: 500
-                            HoverHandler { id: trashHover }
+                            // 点整行打开该文件删除前所在的目录。
+    // 用 openTrashLocation 而不是 openItemLocation: 回收站项的文件已经
+    // 被删除, 原路径下没有它, 定位不到文件本身, 打开原目录才有意义。
+                            MouseArea {
+                                id: trMouse
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: Bridge.openTrashLocation(trRow.restorePath)
+                            }
+
+                            ToolTip.visible: trMouse.containsMouse
+                            ToolTip.text: "原名: " + trRow.name
+                                          + "\n原路径: " + trRow.restorePath
+                                          + "\n(已删除, 点击打开原所在目录)"
+                            ToolTip.delay: 400
                         }
                     }
 

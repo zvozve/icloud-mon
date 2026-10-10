@@ -412,7 +412,8 @@ bool IcloudMonitor::readSnapshot(Snapshot &out, const QString &dbPath,
         // 按需下载(Files On-Demand), 属**正常状态**, 不是待处理任务。
         // 之前不加这个条件, 界面上会一直挂着十几个"待处理项"误导用户。
         if (exec(QStringLiteral(
-                "SELECT item_filename, item_type, COALESCE(version_size,0) "
+                "SELECT item_filename, item_type, COALESCE(version_size,0), "
+                "       COALESCE(item_restore_path,'') "
                 "FROM server_items WHERE item_state<>0 AND pcs_state<>2 "
                 "ORDER BY version_size DESC LIMIT 20"), q)) {
             while (q.next()) {
@@ -420,6 +421,13 @@ bool IcloudMonitor::readSnapshot(Snapshot &out, const QString &dbPath,
                 it.name  = q.value(0).toString();
                 it.isDir = (q.value(1).toInt() == 0);
                 it.bytes = q.value(2).toLongLong();
+                // item_restore_path 是相对同步根目录的路径, 拼绝对路径供"定位"用
+                const QString rel = q.value(3).toString();
+                if (!rel.isEmpty()) {
+                    it.path = QDir::cleanPath(
+                        QDir::fromNativeSeparators(paths::driveRoot()
+                            + QLatin1Char('/') + rel));
+                }
                 out.pendingItems.append(it);
             }
         }

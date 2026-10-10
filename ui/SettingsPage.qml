@@ -17,13 +17,19 @@ import QtQuick.Layouts 1.15
 Item {
     id: page
 
-    // 默认启动页下拉的模型: 首页 + 中间四类(按当前侧边栏顺序) + 设置。
-    // 顺序与侧边栏保持一致, 否则下拉里的顺序和实际导航对不上。
+    // 默认启动页下拉的模型: 首页 + 中间四类(按当前侧边栏顺序, 只列已启用的)
+    // + 设置。顺序与侧边栏保持一致, 否则下拉里的顺序和实际导航对不上;
+    // 未启用的类别在侧边栏已隐藏, 这里也不再列为可选启动页。
     readonly property var pageModel: {
+        var cats = Bridge.categories
         var m = [ { key: "home", name: "首页" } ]
         var o = Bridge.navOrder
-        for (var i = 0; i < o.length; ++i)
-            m.push({ key: o[i], name: Bridge.categoryName(o[i]) })
+        for (var i = 0; i < o.length; ++i) {
+            var enabled = true
+            for (var j = 0; j < cats.length; ++j)
+                if (cats[j].key === o[i]) { enabled = cats[j].enabled === true; break }
+            if (enabled) m.push({ key: o[i], name: Bridge.categoryName(o[i]) })
+        }
         m.push({ key: "settings", name: "设置" })
         return m
     }
@@ -518,7 +524,9 @@ Item {
                     }
                 }
 
-                ComboBox {
+                // 原来用裸 ComboBox, 走 Fusion 浅色默认皮肤, 与深色主题完全不搭。
+    // 换统一的 AppComboBox(背景/文字/箭头/下拉列表全部走 Theme)。
+    AppComboBox {
                     id: defaultPageBox
                     Layout.preferredWidth: 160
                     model: page.pageModel

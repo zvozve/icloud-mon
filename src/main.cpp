@@ -6,10 +6,12 @@
 //  日志: spdlog, 按天切分, 输出到 exe 同级\log\
 // ======================================================================
 #include <utility>
+#include <memory>
 
 #include <QCoreApplication>
 #include <QDateTime>
 #include <QDir>
+#include <QFont>
 #include <QGuiApplication>
 #include <QHash>
 #include <QIcon>
@@ -22,6 +24,7 @@
 #include <QQmlContext>
 #include <QQuickStyle>
 #include <QQuickWindow>
+#include <QSGRendererInterface>
 #include <QSqlDatabase>
 #include <QSqlError>
 #include <QSqlQuery>
@@ -156,6 +159,35 @@ void logGraphicsBackend(QQmlApplicationEngine &engine)
     if (!win)
         return;
 
+    // ★ 先立刻记下"解析到的图形后端"。这一条**不依赖场景图是否成功**,
+    //   白屏/场景图初始化失败时 sceneGraphInitialized 根本不触发, 旧探针
+    //   在最需要的时候是瞎的。Qt 5.15 没有 QQuickWindow::graphicsApi(),
+    //   要经 rendererInterface() 取(拿不到就记 unknown)。
+    auto apiName = [](QSGRendererInterface::GraphicsApi api) -> const char * {
+        switch (api) {
+        case QSGRendererInterface::Software:     return "Software(软件渲染)";
+        case QSGRendererInterface::OpenVG:       return "OpenVG";
+        case QSGRendererInterface::OpenGL:       return "OpenGL";
+        case QSGRendererInterface::OpenGLRhi:    return "OpenGLRhi";
+        case QSGRendererInterface::Direct3D11Rhi:return "Direct3D11Rhi";
+        case QSGRendererInterface::Direct3D12:   return "Direct3D12";
+        case QSGRendererInterface::VulkanRhi:    return "VulkanRhi";
+        case QSGRendererInterface::MetalRhi:     return "MetalRhi";
+        case QSGRendererInterface::NullRhi:      return "NullRhi(空)";
+        default:                                 return "Unknown";
+        }
+    };
+    if (QSGRendererInterface *ri = win->rendererInterface())
+        icloud::log::info(QStringLiteral("[GPU] 解析到的图形后端: %1")
+                              .arg(QString::fromLatin1(apiName(ri->graphicsApi()))));
+    else
+        icloud::log::info(QStringLiteral("[GPU] 解析到的图形后端: rendererInterface 未就绪"));
+
+    // 用一个共享标志记录场景图是否真的起来过
+    auto initialized = std::make_shared<bool>(false);
+    QObject::connect(win, &QQuickWindow::sceneGraphInitialized, win,
+                     [initialized]() { *initialized = true; });
+
     QObject::connect(win, &QQuickWindow::sceneGraphInitialized, win, []() {        QOpenGLContext *ctx = QOpenGLContext::currentContext();
         if (!ctx) {
             icloud::log::warn(QStringLiteral(
@@ -175,10 +207,19 @@ void logGraphicsBackend(QQmlApplicationEngine &engine)
         icloud::log::info(QStringLiteral("[GPU] version=%1")
                               .arg(glStr(GL_VERSION)));
     });
-    // 挂载成功不代表会触发 —— 只有窗口真正渲染时才会发 sceneGraphInitialized。
-    // 所以"有这行、没有下面的 renderer 行" = 窗口在本会话里从未渲染过
-    // (无交互桌面/会话隔离), 而不是探针没装上。这条能把两种情况分开。
     icloud::log::info(QStringLiteral("[GPU] 图形后端探针已挂载, 等待首次渲染"));
+
+    // 若 5 秒场景图还没初始化, 基本可断定没起来(白屏/窗口不显示)。
+    // 给出可操作的后端强制开关, 比让用户干瞪眼强。
+    QTimer::singleShot(5000, win, [initialized]() {
+        if (!*initialized) {
+            icloud::log::warn(QStringLiteral(
+                "[GPU] 5 秒内场景图未初始化 —— 若界面白屏/窗口不显示, "
+                "多为图形后端在当前显卡/驱动上初始化失败。"
+                "可尝试用环境变量强制后端: QT_OPENGL=angle "
+                "(配 QT_ANGLE_PLATFORM=d3d11) 或 QSG_RENDER_LOOP=basic"));
+        }
+    });
 }
 
 // 应用图标。
@@ -347,6 +388,20 @@ int main(int argc, char *argv[])
 
     // 强制 Fusion 风格, 保证 QML 原生控件在各平台观感一致
     QQuickStyle::setStyle(QStringLiteral("Fusion"));
+
+    // ── 全局统一字体 ──
+    // 不设的话 Qt 逐控件挑字体, 同一个汉字在不同 Label/Button/ComboBox 里
+    // 可能落到不同的回退字体(有的控件用 Segoe UI 的西文回退, 有的直接用
+    // 系统 CJK 字体), 观感就是"汉字字体不统一"。
+    // setFamilies 给的是**回退链**: 西文走 Segoe UI, 中文/日文自动落到
+    // 微软雅黑。Qt 会按字符逐个在链上找第一个有该字形的字体, 于是全站
+    // 汉字必然是同一款, 不会再各控件各挑。
+    QFont appFont = app.font();
+    appFont.setFamilies({ QStringLiteral("Segoe UI"),
+                          QStringLiteral("Microsoft YaHei UI"),
+                          QStringLiteral("Microsoft YaHei"),
+                          QStringLiteral("SimHei") });
+    app.setFont(appFont);
 
     // ── 日志初始化 (必须在任何其他模块之前) ──
     icloud::log::init();

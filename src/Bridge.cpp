@@ -3,6 +3,7 @@
 #include <QDateTime>
 #include <QElapsedTimer>
 #include <QDir>
+#include <QFileInfo>
 #include <QProcess>
 #include <QSettings>
 
@@ -161,6 +162,99 @@ void Bridge::resetHistory()
 QString Bridge::stateFilePath() const
 {
     return m_monitor->stateFilePath();
+}
+
+// 在资源管理器中定位一个路径。
+//
+// 三种情况:
+//   1. path 本身是已存在的文件 -> explorer /select 选中它(并打开所在目录)
+//   2. path 是已存在的目录     -> 直接打开
+//   3. path 不存在(待处理项的文件可能还没落到本地) ->
+//      逐级向上找**最近一个存在的祖先目录**并打开它。
+//      找不到就只记日志 + 弹提示, 绝不崩 —— 这些路径来自数据库快照,
+//      随时可能因为 iCloud 变动而失效。
+void Bridge::openItemLocation(const QString &raw)
+{
+    if (raw.isEmpty()) {
+        log::userAction(QStringLiteral("定位"), QStringLiteral("失败: 路径为空"));
+        emit notify(QStringLiteral("warn"), QStringLiteral("该项没有可用路径"));
+        return;
+    }
+
+    QString path = QDir::cleanPath(QDir::fromNativeSeparators(raw));
+    QFileInfo fi(path);
+
+    // 情况 1/2: 目标存在
+    if (fi.exists()) {
+        if (fi.isDir()) {
+            log::userAction(QStringLiteral("打开目录"), path);
+            QProcess::startDetached(QStringLiteral("explorer.exe"), { path });
+        } else {
+            log::userAction(QStringLiteral("定位文件"), path);
+            // explorer 的 /select, 后面**不能有空格**, 参数是一个整体
+            QProcess::startDetached(QStringLiteral("explorer.exe"),
+                                    { QStringLiteral("/select,") + path });
+        }
+        return;
+    }
+
+    // 情况 3: 向上找最近的存在目录
+    QString dir = fi.absolutePath();
+    while (!dir.isEmpty()) {
+        if (QDir(dir).exists()) {
+            log::userAction(QStringLiteral("定位(目标不存在, 打开最近上级目录)"),
+                            QStringLiteral("%1 -> %2").arg(path, dir));
+            emit notify(QStringLiteral("warn"),
+                        QStringLiteral("目标尚未落到本地，已打开所在目录"));
+            QProcess::startDetached(QStringLiteral("explorer.exe"), { dir });
+            return;
+        }
+        const QString parent = QDir(dir).absolutePath();
+        if (parent == dir)   // 到盘根了还没找到
+            break;
+        dir = parent;
+    }
+
+    log::userAction(QStringLiteral("定位"), QStringLiteral("失败: %1").arg(path));
+    emit notify(QStringLiteral("error"),
+                QStringLiteral("找不到该文件所在目录: %1").arg(path));
+}
+
+// 回收站项: 打开被删除文件原来所在的目录。
+// 刻意不跳 openItemLocation —— 那边会对"存在的文件"做 /select, 而回收站项
+// 的文件早已被删除(原路径下没有它), 直接打开原目录 + 据实提示才对。
+void Bridge::openTrashLocation(const QString &originalPath)
+{
+    if (originalPath.isEmpty()) {
+        log::userAction(QStringLiteral("定位回收站项"),
+                        QStringLiteral("失败: 原路径为空"));
+        emit notify(QStringLiteral("warn"), QStringLiteral("该项没有记录原路径"));
+        return;
+    }
+
+    const QString file =
+        QDir::cleanPath(QDir::fromNativeSeparators(originalPath));
+    // 取父目录 = 文件删除前所在的位置
+    QString dir = QFileInfo(file).absolutePath();
+    while (!dir.isEmpty()) {
+        if (QDir(dir).exists()) {
+            log::userAction(QStringLiteral("打开回收站项原位置"),
+                            QStringLiteral("%1 -> %2").arg(file, dir));
+            emit notify(QStringLiteral("ok"),
+                        QStringLiteral("文件已删除，已打开其原所在目录:\n%1").arg(dir));
+            QProcess::startDetached(QStringLiteral("explorer.exe"), { dir });
+            return;
+        }
+        const QString parent = QDir(dir).absolutePath();
+        if (parent == dir)
+            break;
+        dir = parent;
+    }
+
+    log::userAction(QStringLiteral("定位回收站项"),
+                    QStringLiteral("失败: %1").arg(file));
+    emit notify(QStringLiteral("error"),
+                QStringLiteral("找不到该文件原来的目录: %1").arg(file));
 }
 
 void Bridge::openLogDir()

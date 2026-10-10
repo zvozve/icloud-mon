@@ -35,6 +35,7 @@ public:
         SizeRole,
         IsDirRole,
         SizeTextRole,
+        PathRole,
     };
 
     explicit PendingModel(QObject *parent = nullptr)
@@ -63,6 +64,7 @@ public:
         case SizeRole:     return it.bytes;
         case IsDirRole:    return it.isDir;
         case SizeTextRole: return humanSize(it.bytes);
+        case PathRole:     return it.path;
         }
         return {};
     }
@@ -74,6 +76,7 @@ public:
             { SizeRole,     "size" },
             { IsDirRole,    "isDir" },
             { SizeTextRole, "sizeText" },
+            { PathRole,     "path" },
         };
     }
 
@@ -316,6 +319,17 @@ public:
     // ── 历史 ──
     Q_INVOKABLE void resetHistory();
     Q_INVOKABLE QString stateFilePath() const;
+
+    // 在资源管理器中定位一个文件/目录(待处理项、本地未提交项、回收站项点"定位")。
+    // 文件 -> explorer /select 选中它; 目录 -> 直接打开。
+    // 路径为空或整条链都不存在时优雅降级(记日志 + 弹提示), 不崩。
+    Q_INVOKABLE void openItemLocation(const QString &path);
+
+    // 回收站项专用: 传 item_restore_path(文件被删除前的原始路径)。
+    // ★ 与 openItemLocation 的区别: 回收站项的文件**已经被删除**, 原路径下
+    //   已经没有该文件了, 所以不做 /select 选中文件, 而是打开它原来所在的
+    //   目录, 让用户看到上下文并决定是否恢复; 提示语也据实说明"已删除"。
+    Q_INVOKABLE void openTrashLocation(const QString &originalPath);
 
     // ── 日志 ──
     Q_PROPERTY(QString logDir READ logDir CONSTANT)

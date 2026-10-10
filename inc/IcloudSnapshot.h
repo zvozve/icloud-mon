@@ -57,6 +57,11 @@ struct PendingItem
     QString name;
     qint64  bytes = 0;
     bool    isDir = false;
+    // 尽力还原出的本地绝对路径(点"定位"用)。
+    // server_items 表**没有** item_absolutepath 列(只有 local_items 有),
+    // 这里用 item_restore_path(相对同步根)拼出绝对路径。该文件可能还没落到
+    // 本地(所以是"尽力"), openItemLocation() 对不存在的路径会优雅降级。
+    QString path;
 };
 
 // ── 本地项未提交变更 (local_items 有 diff / syncup 非 0) ──────────

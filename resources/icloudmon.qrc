@@ -18,10 +18,11 @@
         <file alias="qml/QueuePanel.qml">../ui/QueuePanel.qml</file>
         <file alias="qml/PcsPanel.qml">../ui/PcsPanel.qml</file>
         <file alias="qml/AlertBanner.qml">../ui/AlertBanner.qml</file>
-        <!-- 统一控件: 全部按钮/开关/滑块都必须走这几个, 不再各写各的 -->
+        <!-- 统一控件: 全部按钮/开关/滑块/下拉都必须走这几个, 不再各写各的 -->
         <file alias="qml/AppButton.qml">../ui/AppButton.qml</file>
         <file alias="qml/AppSwitch.qml">../ui/AppSwitch.qml</file>
         <file alias="qml/AppSlider.qml">../ui/AppSlider.qml</file>
+        <file alias="qml/AppComboBox.qml">../ui/AppComboBox.qml</file>
         <!-- 图标 -->
         <!-- 矢量, 由 qsvg 图片插件渲染。部署目录已有 qsvg.dll + Qt5Svg.dll。
              用于窗口图标 / 任务栏 / 系统托盘 / 导航栏品牌位。 -->

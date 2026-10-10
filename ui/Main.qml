@@ -42,6 +42,32 @@ ApplicationWindow {
     // 启动时按用户设置的默认启动页定位
     Component.onCompleted: currentKey = Bridge.defaultPage
 
+    // 侧边栏实际显示的类别顺序 = navOrder 里**已启用**的那些。
+    // 需求: 在设置里把某类关掉后, 侧边栏与主页都要真正隐藏它(不是灰化)。
+    // 这里同时读 categories 和 navOrder, 两者任一变化都会重算;
+    // 类别状态尚未采样到(列表为空)时一律按"启用"处理, 避免启动瞬间空侧边栏。
+    readonly property var visibleOrder: {
+        var cats = Bridge.categories
+        var order = Bridge.navOrder
+        var out = []
+        for (var i = 0; i < order.length; ++i) {
+            var enabled = true
+            for (var j = 0; j < cats.length; ++j) {
+                if (cats[j].key === order[i]) { enabled = cats[j].enabled === true; break }
+            }
+            if (enabled) out.push(order[i])
+        }
+        return out
+    }
+
+    // 当前页被隐藏(用户刚把它关掉了)时退回首页, 否则会停在一个
+    // 侧边栏里已经没有入口的页面上。
+    onVisibleOrderChanged: {
+        if (currentKey !== "home" && currentKey !== "settings"
+            && visibleOrder.indexOf(currentKey) < 0)
+            currentKey = "home"
+    }
+
     // 类别 key -> 图标种类
     function iconFor(k) {
         switch (k) {
@@ -190,9 +216,9 @@ ApplicationWindow {
                     onActivated: win.currentKey = "home"
                 }
 
-                // ── 中间四类(顺序可调) ──
+                // ── 中间四类(顺序可调, 未启用的不显示) ──
                 Repeater {
-                    model: Bridge.navOrder
+                    model: win.visibleOrder
 
                     delegate: NavItem {
                         required property string modelData

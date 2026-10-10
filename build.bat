@@ -21,11 +21,15 @@ echo  iCloudMon build  (Qt 5.15.2 msvc2019 32bit)
 echo ============================================================
 echo.
 
-if not exist "%VCVARS%" (
-    echo [ERROR] vcvars32.bat not found:
-    echo         %VCVARS%
-    exit /b 1
-)
+REM NOTE: the vcvars path contains "(x86)". Inside a parenthesized if-block
+REM cmd miscounts the parentheses of the expanded path and tries to execute
+REM "\Microsoft ...", aborting with "\Microsoft was unexpected at this time".
+REM So the existence check must NOT use a (...) block -- use goto instead.
+if exist "%VCVARS%" goto :vc_ok
+echo [ERROR] vcvars32.bat not found:
+echo         %VCVARS%
+exit /b 1
+:vc_ok
 
 REM --- 1. MSVC 32bit environment -----------------------------------
 echo [1/4] Loading MSVC x86 environment ...
