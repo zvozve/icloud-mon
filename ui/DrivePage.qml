@@ -294,7 +294,11 @@ Item {
                     // ── 云端待处理项 ──
                     ListView {
                         Layout.fillWidth: true
-                        Layout.fillHeight: true
+                        // ★ 不再 fillHeight。fillHeight 会把列表拉到填满
+                        //   面板剩余空间, 空态提示就被顶到面板最下沿, 中间
+                        //   空出一大片。改成按内容取高(最多 8 行, 超出则内部
+                        //   滚动), 列表短就短 —— 空态提示紧跟在列表下方。
+                        Layout.preferredHeight: Math.min(8, Math.max(1, Bridge.pendingItems.count)) * 26
                         clip: true
                         model: Bridge.pendingItems
                         spacing: 2
@@ -376,9 +380,17 @@ Item {
                         }
                     }
 
+                    // 空态提示: 紧跟在列表**下面**, 不沉到面板底部。
+                    //
+                    // 原来上面那个 ListView 用了 Layout.fillHeight(它需要
+                    // 确定高度才能滚动), 于是把空态 Label 顶到了面板最下沿 ——
+                    // 面板高度是按内容算的, 两者之间就空出一大片, 提示孤零零
+                    // 挂在底部, 看着像另一个区域的内容。
+                    // 现在给 ListView 一个固定的"内容高度"而不是填满剩余:
+                    // 列表短就短, 空态提示紧跟在后面。
                     Label {
                         Layout.alignment: Qt.AlignHCenter
-                        Layout.topMargin: 20
+                        Layout.topMargin: 6
                         text: Bridge.pendingRealCount === 0
                               && Bridge.localPendings.count === 0
                               ? "无待处理项，同步已追平" : ""
@@ -429,7 +441,10 @@ Item {
 
                     ListView {
                         Layout.fillWidth: true
-                        Layout.fillHeight: true
+                        // 同云端待处理列表: 不 fillHeight, 按内容取高
+                        // (最多 8 行, 超出内部滚动)。fillHeight 会把列表
+                        // 拉到填满面板, 空态提示被顶到最下沿、中间空一大片。
+                        Layout.preferredHeight: Math.min(8, Math.max(1, Bridge.trashItems.count)) * 26
                         clip: true
                         model: Bridge.trashItems
                         spacing: 2
