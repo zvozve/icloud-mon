@@ -57,98 +57,174 @@ Item {
             //   "启停 iCloud"这种全局操作挂在每个页面的顶栏上并不合适
             //   (书签页/密码页顶部也摆一个 iCloud 开关, 与该页内容无关)。
             //   现移到首页: 首页是应用的入口页, 全局操作放这里最自然。
+            // ── iCloud 运行状态面板(开关 + 进程 + 游标, 合并为一个) ──
+            //
+            // ★ 原来这里是**两个**独立面板: 上面的"开关组"和下面的
+            //   "进程+游标"。虽然是同一条信息链(开关 → 实际跑了哪些进程
+            //   → 游标是否追平), 但拆成两块就被上下边框割裂, 看起来像
+            //   两件不相关的事。已合并成一个面板, 内部两行 —— 上边框只画
+            //   一次, 进程与开关的因果关系连着读下来。
+            //
+            //   高度按内容算(内部 ColumnLayout 自撑): 第一行约 30,
+            //   第二行(进程+游标同排)约 18, 加边距与行距。
             Rectangle {
                 Layout.fillWidth: true
-                // 加入"更新时刻 + 刷新按钮"后高度从 64 提到 72
-                Layout.preferredHeight: 72
+                implicitHeight: statusCol.implicitHeight + Theme.spL * 2
                 color: Theme.bgPanel
                 radius: Theme.radius
                 border.color: Theme.border
                 border.width: 1
 
-                RowLayout {
+                ColumnLayout {
+                    id: statusCol
                     anchors.fill: parent
                     anchors.margins: Theme.spL
                     spacing: Theme.sp
 
-                    Label {
-                        text: "iCloud"
-                        color: Theme.textHi
-                        font.pixelSize: Theme.fsBig
-                        font.bold: true
-                    }
+                    // ── 第一行: iCloud + 启停开关 + 版本 + 采样 + 刷新 ──
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Layout.minimumWidth: 0
+                        spacing: Theme.sp
 
-                    Rectangle {
-                        width: 1; height: 20
-                        color: Theme.border
-                        Layout.alignment: Qt.AlignVCenter
-                    }
-
-                    Label {
-                        text: Bridge.icloudRunning ? "运行中" : "已停止"
-                        color: Bridge.icloudRunning ? Theme.ok : Theme.err
-                        font.pixelSize: Theme.fsBody
-                        font.bold: true
-                    }
-
-                    AppSwitch {
-                        id: icloudSwitch
-                        // ★ 开关状态完全由后端进程事实驱动。
-                        //   **绝对不要在这里写 `checked = ...`** ——
-                        //   那是对绑定属性的 JS 赋值, 会把
-                        //   `checked: Bridge.icloudRunning` 这个绑定删除
-                        //   (QML 规则: C++ 内部写属性不移除绑定, JS 赋值会)。
-                        //   绑定一旦被删, checked 永久停在用户最后拨到的值,
-                        //   不再跟随真实进程状态。点击只调后端动作,
-                        //   由 onProcTimer 经 icloudStateChanged 推回来。
-                        checked: Bridge.icloudRunning
-                        enabled: !Bridge.busyRestarting
-                        onToggled: {
-                            if (checked) Bridge.startIcloud()
-                            else         Bridge.stopIcloud()
+                        Label {
+                            text: "iCloud"
+                            color: Theme.textHi
+                            font.pixelSize: Theme.fsBig
+                            font.bold: true
                         }
-                        ToolTip.visible: hovered
-                        ToolTip.text: Bridge.icloudRunning
-                                      ? "点一下停止 iCloud"
-                                      : "点一下启动 iCloud"
-                        ToolTip.delay: 500
+
+                        Rectangle {
+                            width: 1; height: 20
+                            color: Theme.border
+                            Layout.alignment: Qt.AlignVCenter
+                        }
+
+                        Label {
+                            text: Bridge.icloudRunning ? "运行中" : "已停止"
+                            color: Bridge.icloudRunning ? Theme.ok : Theme.err
+                            font.pixelSize: Theme.fsBody
+                            font.bold: true
+                        }
+
+                        AppSwitch {
+                            id: icloudSwitch
+                            // ★ 开关状态完全由后端进程事实驱动。
+                            //   **绝对不要在这里写 `checked = ...`** ——
+                            //   那是对绑定属性的 JS 赋值, 会把
+                            //   `checked: Bridge.icloudRunning` 这个绑定删除
+                            //   (QML 规则: C++ 内部写属性不移除绑定, JS 赋值会)。
+                            //   绑定一旦被删, checked 永久停在用户最后拨到的值,
+                            //   不再跟随真实进程状态。点击只调后端动作,
+                            //   由 onProcTimer 经 icloudStateChanged 推回来。
+                            checked: Bridge.icloudRunning
+                            enabled: !Bridge.busyRestarting
+                            onToggled: {
+                                if (checked) Bridge.startIcloud()
+                                else         Bridge.stopIcloud()
+                            }
+                            ToolTip.visible: hovered
+                            ToolTip.text: Bridge.icloudRunning
+                                          ? "点一下停止 iCloud"
+                                          : "点一下启动 iCloud"
+                            ToolTip.delay: 500
+                        }
+
+                        Item { Layout.fillWidth: true }
+
+                        Label {
+                            text: Bridge.dbOk ? ("v" + Bridge.clientVersion)
+                                              : "数据库不可读"
+                            color: Bridge.dbOk ? Theme.textLo : Theme.err
+                            font.pixelSize: Theme.fsSmall
+                        }
+
+                        Label {
+                            // 采样时刻: **整个程序**的采样点(所有页面的数据
+                            // 都来自这一次), 属软件状态, 所以放首页。
+                            text: "更新 " + Bridge.timestamp
+                            color: Theme.textLo
+                            font.pixelSize: Theme.fsSmall
+                        }
+
+                        AppButton {
+                            kind: "ghost"
+                            minW: 60
+                            padH: 6
+                            text: "刷新"
+                            onClicked: Bridge.refreshNow()
+                            ToolTip.visible: hovered
+                            ToolTip.text: "立即刷新 (每 " + Bridge.refreshSec + " 秒自动)"
+                            ToolTip.delay: 500
+                        }
                     }
 
-                    Item { Layout.fillWidth: true }
-
-                    Label {
-                        text: Bridge.dbOk ? ("iCloud v" + Bridge.clientVersion)
-                                          : "数据库不可读"
-                        color: Bridge.dbOk ? Theme.textLo : Theme.err
-                        font.pixelSize: Theme.fsSmall
-                    }
-
-                    Rectangle {
-                        width: 1; height: 14
-                        color: Theme.border
-                        Layout.alignment: Qt.AlignVCenter
-                    }
-
-                    // 采样时刻 + 手动刷新。
+                    // ── 第二行: 进程 + 游标(同一排, 用弹性空隙隔开) ──
                     //
-                    // ★ 从云盘页状态卡搬来: 它是**整个程序**的采样时刻
-                    //   (所有页面的数据都来自这一次采样), 放在云盘页会让人
-                    //   误以为只有云盘在刷新。首页才是"程序整体状态"的所在。
-                    Label {
-                        text: "更新 " + Bridge.timestamp
-                        color: Theme.textLo
-                        font.pixelSize: Theme.fsSmall
-                    }
+                    // 进程与游标都是"开关/程序运行得好不好"的佐证, 并列一行
+                    // 比上下两行更紧凑, 也让上面那排控件的宽度压力小一些。
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Layout.minimumWidth: 0
+                        spacing: 6
+                        // 进程与游标任一为空时整行隐藏, 避免出现空行
+                        visible: Bridge.icloudProcesses !== "" || Bridge.rankText !== ""
 
-                    AppButton {
-                        kind: "ghost"
-                        minW: 60
-                        padH: 6
-                        text: "刷新"
-                        onClicked: Bridge.refreshNow()
-                        ToolTip.visible: hovered
-                        ToolTip.text: "立即刷新 (每 " + Bridge.refreshSec + " 秒自动)"
-                        ToolTip.delay: 500
+                        Label {
+                            text: "进程"
+                            color: Theme.textLo
+                            font.pixelSize: Theme.fsTiny
+                            visible: Bridge.icloudProcesses !== ""
+                        }
+                        Label {
+                            text: Bridge.icloudProcesses
+                            color: Bridge.icloudRunning ? Theme.textMid : Theme.err
+                            font.pixelSize: Theme.fsTiny
+                            font.family: "Consolas, monospace"
+                            // ★ 宽度分配: 进程用 Layout.fillWidth(可压缩), 但把**最小宽度压到 0**;
+                            //   游标给一个明确的 minimumWidth, 保证它不会被压没。
+                            //   原来两者都 fillWidth + minimumWidth:0 等分, 结果
+                            //   进程被截成 "ApplePhotoSt..."、游标被截成 "-> ..."
+                            //   (结尾"已追平"看不到), 两边都没读全。
+                            //   现在: 进程可让、游标优先完整 —— 少看一个 exe 名
+                            //   不影响判断, 但"已追平/未追平"是结论, 必须看到。
+                            Layout.fillWidth: true
+                            Layout.minimumWidth: 0
+                            Layout.preferredWidth: 3
+                            // 进程名可能很长(4 个 exe 逗号连接),
+                            // 必须能省略收尾, 否则会把布局撑开
+                            elide: Text.ElideRight
+                            visible: Bridge.icloudProcesses !== ""
+                        }
+
+                        Rectangle {
+                            width: 1; height: 12
+                            color: Theme.border
+                            Layout.alignment: Qt.AlignVCenter
+                            visible: Bridge.icloudProcesses !== ""
+                                           && Bridge.rankText !== ""
+                        }
+
+                        Label {
+                            text: Bridge.inSync ? "\u2713" : "\u27F3"
+                            color: Bridge.inSync ? Theme.ok : Theme.warn
+                            font.pixelSize: Theme.fsSmall
+                            font.bold: true
+                            visible: Bridge.rankText !== ""
+                        }
+                        Label {
+                            text: Bridge.rankText
+                            color: Theme.textLo
+                            font.pixelSize: Theme.fsTiny
+                            font.family: "Consolas, monospace"
+                            // 游标设一个最小宽度(150px 够放下
+                            // "client=2522 server=2522 待应用=0 -> 已追平"),
+                            // 这样空间不够时被压缩的是进程名(可省略),
+                            // 游标的"已追平/未追平"结论永远可见。
+                            Layout.minimumWidth: 150
+                            elide: Text.ElideRight
+                            visible: Bridge.rankText !== ""
+                        }
                     }
                 }
             }
@@ -166,82 +242,12 @@ Item {
             //   iCloudDrive.db, 但它描述的是"程序运行得怎么样", 而不是
             //   "云盘里有什么文件"。放在云盘页会让人误以为只有打开云盘页
             //   才能看到告警 —— 出问题时最该第一时间看到的地方反而是首页。
-            //   首页是入口页, 全局告警放这里最合理。
             AlertBanner {
                 Layout.fillWidth: true
                 visible: Bridge.anomalous
                 Layout.preferredHeight: visible ? implicitHeight : 0
                 Behavior on Layout.preferredHeight {
                     NumberAnimation { duration: 180; easing.type: Easing.OutCubic }
-                }
-            }
-
-            // ── 进程列表 + 同步游标 ──
-            //
-            // 同理搬过来: 这是软件状态, 不是云盘内容。
-            // 放在 iCloud 控制区正下方, 形成"开关 → 实际跑了哪些进程"的一组。
-            Rectangle {
-                Layout.fillWidth: true
-                // 进程列表与游标都在时约两行(16+14)+边距; 只有其一时更矮。
-                Layout.preferredHeight: 16 + (Bridge.icloudProcesses !== "" ? 20 : 0)
-                                         + (Bridge.rankText !== "" ? 20 : 0)
-                                         + Theme.sp * 2
-                color: Theme.bgPanel
-                radius: Theme.radius
-                border.color: Theme.border
-                border.width: 1
-
-                ColumnLayout {
-                    anchors.fill: parent
-                    anchors.margins: Theme.sp
-                    spacing: 4
-
-                    RowLayout {
-                        Layout.fillWidth: true
-                        Layout.minimumWidth: 0
-                        spacing: 6
-                        visible: Bridge.icloudProcesses !== ""
-
-                        Label {
-                            text: "进程"
-                            color: Theme.textLo
-                            font.pixelSize: Theme.fsTiny
-                        }
-                        Label {
-                            text: Bridge.icloudProcesses
-                            color: Bridge.icloudRunning ? Theme.textMid : Theme.err
-                            font.pixelSize: Theme.fsTiny
-                            font.family: "Consolas, monospace"
-                            Layout.fillWidth: true
-                            Layout.minimumWidth: 0
-                            // 进程名可能很长(4 个 exe 逗号连接),
-                            // 必须能省略收尾, 否则会把布局撑开
-                            elide: Text.ElideRight
-                        }
-                    }
-
-                    RowLayout {
-                        Layout.fillWidth: true
-                        Layout.minimumWidth: 0
-                        spacing: 6
-                        visible: Bridge.rankText !== ""
-
-                        Label {
-                            text: Bridge.inSync ? "✓" : "⟳"
-                            color: Bridge.inSync ? Theme.ok : Theme.warn
-                            font.pixelSize: Theme.fsSmall
-                            font.bold: true
-                        }
-                        Label {
-                            text: Bridge.rankText
-                            color: Theme.textLo
-                            font.pixelSize: Theme.fsTiny
-                            font.family: "Consolas, monospace"
-                            Layout.fillWidth: true
-                            Layout.minimumWidth: 0
-                            elide: Text.ElideRight
-                        }
-                    }
                 }
             }
 
