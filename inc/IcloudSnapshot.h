@@ -123,6 +123,8 @@ struct Snapshot
     // 十几个假的"待处理项"。
     int                    cloudOnlyCount = 0;
     QVector<LocalPending> localPendings;
+    // 本地未提交项的**真实总数**(localPendings 只取前几条用于展示, 这里放总数)
+    int                    localPendingTotal = 0;
     QVector<TrashItem>    trashItems;      // 回收站明细
     int                    trashCount = 0; // 回收站项数
     QVector<ZoneInfo>     activeZones;

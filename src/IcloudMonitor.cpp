@@ -450,7 +450,17 @@ bool IcloudMonitor::readSnapshot(Snapshot &out, const QString &dbPath,
     }
 
     // 7) 本地未提交项 (卡死判定的关键)
+    //列表只展示前 kLocalPendingShown 条(面板高度固定, 多了会溢出);
+    // 真实总数单独用 COUNT 查, 供界面显示"还有 N 项"。
     {
+        QSqlQuery qc(db);
+        if (exec(QStringLiteral(
+                "SELECT COUNT(*) FROM local_items "
+                "WHERE item_localsyncupstate<>0 "
+                "   OR item_in_flight_diffs<>0 OR item_local_diffs<>0"), qc)
+            && qc.next())
+            out.localPendingTotal = qc.value(0).toInt();
+
         QSqlQuery q(db);
         if (exec(QStringLiteral(
                 "SELECT item_filename, item_type, item_localsyncupstate, "
@@ -458,7 +468,7 @@ bool IcloudMonitor::readSnapshot(Snapshot &out, const QString &dbPath,
                 "       COALESCE(item_local_diffs,0), item_absolutepath "
                 "FROM local_items WHERE item_localsyncupstate<>0 "
                 "   OR item_in_flight_diffs<>0 OR item_local_diffs<>0 "
-                "LIMIT 20"), q)) {
+                "LIMIT 6"), q)) {
             while (q.next()) {
                 LocalPending p;
                 p.name        = q.value(0).toString();

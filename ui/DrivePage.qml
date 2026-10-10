@@ -125,6 +125,10 @@ Item {
                 radius: Theme.radius
                 border.color: Theme.border
                 border.width: 1
+                // ★ 必须 clip: 本面板高度固定(360), 而内部"本地未提交"是
+                //   Repeater(本身不可滚动), 条目一多会超出面板。不裁剪的话
+                //   内容直接画到面板外面的空白页面上, 看起来像界面错乱。
+                clip: true
 
                 ColumnLayout {
                     anchors.fill: parent
@@ -148,7 +152,7 @@ Item {
                                   + (Bridge.pendingOrphanCount > 0
                                      ? " + " + Bridge.pendingOrphanCount + " 孤立"
                                      : "")
-                                  + " + " + Bridge.localPendings.count + " 本地未提交"
+                                  + " + " + Bridge.localPendingTotal + " 本地未提交"
                             color: Bridge.pendingRealCount > 0 ? Theme.warn
                                                                : Theme.textLo
                             font.pixelSize: Theme.fsTiny
@@ -220,6 +224,16 @@ Item {
                                           : (lpRow.name + "\n(无路径)")
                             ToolTip.delay: 400
                         }
+                    }
+
+                    // 本地未提交只展示前几条, 超出部分用这行提示总数
+                    Label {
+                        Layout.fillWidth: true
+                        visible: Bridge.localPendingTotal > Bridge.localPendings.count
+                        text: "… 另有 " + (Bridge.localPendingTotal - Bridge.localPendings.count) + " 项本地未提交"
+                        color: Theme.textLo
+                        font.pixelSize: Theme.fsTiny
+                        elide: Text.ElideRight
                     }
 
                     Rectangle {

@@ -274,6 +274,8 @@ class Bridge : public QObject
     Q_PROPERTY(int pendingRealCount READ pendingRealCount NOTIFY snapshotChanged)
     // 文件已删但状态未清的孤立记录数(不占队列, 仅提示)
     Q_PROPERTY(int pendingOrphanCount READ pendingOrphanCount NOTIFY snapshotChanged)
+    // 本地未提交项真实总数(模型只展示前几条, 这里给总数)
+    Q_PROPERTY(int localPendingTotal READ localPendingTotal NOTIFY snapshotChanged)
 
     // ── iCloud 进程 ──
     Q_PROPERTY(bool    icloudRunning READ icloudRunning NOTIFY icloudStateChanged)
@@ -447,6 +449,8 @@ public:
                 ++n;
         return n;
     }
+    // 本地未提交项真实总数
+    int     localPendingTotal() const { return m_snap.localPendingTotal; }
 
     bool    icloudRunning() const { return m_icloudRunning; }
     QString icloudProcesses() const { return m_procList.join(QStringLiteral(", ")); }
