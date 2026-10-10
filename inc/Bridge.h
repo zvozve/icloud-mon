@@ -19,6 +19,7 @@
 #include "IcloudMonitor.h"
 #include "IcloudService.h"
 #include "IcloudSnapshot.h"
+// #include "IcloudQuota.h"   // 存储卡片暂缓, 见下方 quota 属性段说明
 #include "Log.h"
 
 namespace icloud {
@@ -298,6 +299,23 @@ class Bridge : public QObject
     // ── 云端状态分布 (给 PcsPanel 用) ──
     Q_PROPERTY(QVariantList pcsBuckets READ pcsBuckets NOTIFY snapshotChanged)
 
+    // ── iCloud 存储配额(首页存储卡片) ──
+// ★ 整段暂不启用: 数据层代码(IcloudQuota/BPlist)已写好并提交, 但自研的
+//   二进制 plist 解析器还没调通 —— Apple 这个偏好文件不是标准 bplist
+//   (整数用 0x1_ 标记、bool 用 0x08/0x09, 与教科书编码不同)。
+//   解析器验证通过后, 取消下面这段与 CMakeLists 里的注释即可接上首页。
+//    Q_PROPERTY(bool       quotaOk        READ quotaOk        NOTIFY quotaChanged)
+//    Q_PROPERTY(QString    quotaError     READ quotaError     NOTIFY quotaChanged)
+//    Q_PROPERTY(QString    quotaTotalText READ quotaTotalText NOTIFY quotaChanged)
+//    Q_PROPERTY(QString    quotaUsedText  READ quotaUsedText  NOTIFY quotaChanged)
+//    Q_PROPERTY(QString    quotaFreeText  READ quotaFreeText  NOTIFY quotaChanged)
+//    Q_PROPERTY(double     quotaUsedRatio READ quotaUsedRatio NOTIFY quotaChanged)
+//    Q_PROPERTY(bool       quotaOver      READ quotaOver      NOTIFY quotaChanged)
+    // 分类用量: [{label, bytes, bytesText, color, ratio}, ...]
+//    Q_PROPERTY(QVariantList quotaBuckets  READ quotaBuckets  NOTIFY quotaChanged)
+    // Manage 按钮: 打开 Apple 的"管理 iCloud 储存空间"页面
+//    Q_INVOKABLE void openQuotaManage();
+
     // ── 模型 ──
     Q_PROPERTY(icloud::PendingModel *pendingItems
                READ pendingItems CONSTANT)
@@ -474,6 +492,17 @@ public:
     QStringList anomalyList() const { return m_anomalyList; }
     QVariantList pcsBuckets() const;
 
+    // ── iCloud 存储配额 getter ──(暂缓, 见上方 Q_PROPERTY 段说明)
+    // bool        quotaOk()        const;
+    // QString     quotaError()     const;
+    // QString     quotaTotalText() const;
+    // QString     quotaUsedText()  const;
+    // QString     quotaFreeText()  const;
+    // double      quotaUsedRatio() const;
+    // bool        quotaOver()      const;
+    // QVariantList quotaBuckets()  const;
+    // void        refreshQuota();
+
     // 四类状态(每次采样刷新)
     QVector<CategoryStatus> m_categories;
     QStringList m_navOrder;
@@ -510,6 +539,7 @@ signals:
     void icloudStateChanged();
     void autoStartChanged();
     void settingsChanged();
+    // void quotaChanged();   // 存储卡片暂缓
     void anomalyChanged();
     void logChanged();
     void driveRootChanged();
@@ -540,6 +570,9 @@ private:
     PendingModel      m_pendingModel;
     LocalPendingModel m_localModel;
     TrashModel        m_trashModel;
+
+    // iCloud 存储配额: 暂缓(解析器未调通), 字段保留待启用
+    // icloud::QuotaInfo m_quota;
 
     QTimer *m_procTimer = nullptr;
     bool    m_icloudRunning = false;

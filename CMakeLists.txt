@@ -95,6 +95,10 @@ add_executable(iCloudMon WIN32
     src/Bridge.cpp
     src/IcloudMonitor.cpp
     src/IcloudCategories.cpp
+    # iCloud 存储配额(首页存储卡片): 解析器未调通, 暂不参与构建。
+    # 代码保留, 等 BPlist 解析器验证通过后取消注释即可。
+    # src/IcloudQuota.cpp
+    # src/BPlist.cpp
     src/IcloudService.cpp
     src/AutoStart.cpp
     src/Log.cpp

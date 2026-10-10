@@ -1,5 +1,7 @@
 #include "Bridge.h"
 
+#include <QtMath>
+
 #include <QDateTime>
 #include <QElapsedTimer>
 #include <QDesktopServices>
@@ -415,6 +417,12 @@ void Bridge::onStateChanged(const icloud::Snapshot &s)
     emit snapshotChanged();
 }
 
+    // ★ 当前**未启用**: 自研的 BPlist 解析器还没调通(Apple 这个偏好文件
+    //   用的不是标准 bplist 编码: 整数是 0x1_、bool 是 0x08/0x09)。
+    //   代码保留在 IcloudQuota.cpp / BPlist.cpp, 等解析器验证通过后再
+    //   挂回这里并接上首页那张存储卡片。
+    //   现在不调用 = 不会每 3 秒读文件、不会打无意义的解析失败警告。
+
 void Bridge::onAnomaly(const QString &kind, const QString &title,
                        const QString &detail)
 {
@@ -736,6 +744,91 @@ QString Bridge::rankText() const
         .arg(m_snap.inSync ? QStringLiteral("已追平")
                            : QStringLiteral("追赶中"));
 }
+
+// ══════════════════════════════════════════════════════════════════
+//  iCloud 存储配额
+// ══════════════════════════════════════════════════════════════════
+
+// 下面的 getter 一律读缓存 m_quota —— 它由 refreshQuota() 在每次采样时
+// 重新从偏好文件读取并填好(数值变化时才 emit quotaChanged)。
+// 所以既不会显示"启动时的旧快照", 也不会在渲染时被反复读盘。
+
+//bool Bridge::quotaOk() const      { return m_quota.ok; }
+//QString Bridge::quotaError() const { return m_quota.error; }
+
+//static QString humanGB(qint64 bytes)
+//{
+//    if (bytes <= 0)
+//        return QStringLiteral("0 GB");
+//    const double gb = double(bytes) / (1024.0 * 1024.0 * 1024.0);
+//    // 跟 Apple 界面一致: 小于 10GB 显示一位小数(如 "9.4 GB"),
+//    // 更大则取整(如 "32 GB"), 免得出现 "1234.5 GB" 这种长数字。
+//    if (gb < 10.0)
+//        return QStringLiteral("%1 GB").arg(gb, 0, 'f', 1);
+//    return QStringLiteral("%1 GB").arg(qRound(gb));
+//}
+
+//QString Bridge::quotaTotalText() const
+//{
+//    const auto &q = m_quota;
+//    return q.ok ? humanGB(q.totalQuota) : QString();
+//}
+
+//QString Bridge::quotaUsedText() const
+//{
+//    const auto &q = m_quota;
+//    return q.ok ? humanGB(q.totalUsed) : QString();
+//}
+
+//QString Bridge::quotaFreeText() const
+//{
+//    const auto &q = m_quota;
+//    return q.ok ? humanGB(q.totalFree) : QString();
+//}
+
+//double Bridge::quotaUsedRatio() const
+//{
+//    const auto &q = m_quota;
+//    if (!q.ok || q.totalQuota <= 0)
+//        return 0.0;
+//    return double(q.totalUsed) / double(q.totalQuota);
+//}
+
+//bool Bridge::quotaOver() const { return m_quota.overQuota; }
+
+//QVariantList Bridge::quotaBuckets() const
+//{
+//    QVariantList out;
+//    const auto &q = m_quota;
+//    if (!q.ok || q.totalQuota <= 0)
+//        return out;
+
+//    for (const icloud::QuotaBucket &b : q.buckets) {
+//        QVariantMap m;
+//        m.insert(QStringLiteral("label"), b.label);
+//        m.insert(QStringLiteral("bytes"), double(b.bytes));
+//        m.insert(QStringLiteral("bytesText"), humanGB(b.bytes));
+//        m.insert(QStringLiteral("color"), b.colorHex);
+//        // 占整条的比例 —— 各段之和正好等于 quotaUsedRatio。
+//        // 归一到 totalQuota 而不是 used, 这样"已用条"的长度就等于
+//        // 已用占比, 与左侧的总量/已用数字对得上。
+//        m.insert(QStringLiteral("ratio"), double(b.bytes) / double(q.totalQuota));
+//        out.append(m);
+//    }
+//    return out;
+//}
+
+//void Bridge::openQuotaManage()
+//{
+//    const auto &q = m_quota;
+//    if (q.manageUrl.isEmpty()) {
+//        emit notify(QStringLiteral("info"),
+//                    QStringLiteral("拿不到 Apple 的储存空间管理地址"));
+//        return;
+//    }
+//    log::userAction(QStringLiteral("打开 iCloud 储存空间管理页"));
+//    QDesktopServices::openUrl(QUrl(q.manageUrl));
+//}
 
 QVariantList Bridge::pcsBuckets() const
 {

@@ -132,6 +132,16 @@ inline QString photoLibraryDir()
         + QStringLiteral("/LocalCache/Local/Apple Inc/iCloudPhotoLibrary");
 }
 
+// iCloud 存储配额/用量: iCloud 把"设置→iCloud 存储空间"那张卡片的全部
+// 数据缓存在这个二进制 plist 里(StorageData 节点), 我们只读它。
+// 见 IcloudQuota.h 的详细说明。
+inline QString quotaPrefFile()
+{
+    return packageDir()
+        + QStringLiteral("/LocalCache/Roaming/Apple Computer/Preferences")
+        + QStringLiteral("/iCloudWinPref.plist");
+}
+
 // UWP 后台任务的注册表根键。各任务的 State: 2=启用 0=未启用。
 // ⚠ 实测只有云盘和相册与 iCloud 设置界面吻合; 密码/书签对不上, 详见
 // IcloudCategories.h 的说明 —— 只能当参考值。
