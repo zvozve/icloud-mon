@@ -1,6 +1,12 @@
 // ======================================================================
-//  StatusCard.qml  -  当前状态大卡片
-//  显示: 状态名 + 详情 + 同步游标 + 最近错误
+//  StatusCard.qml  -  同步状态卡(只管同步)
+//
+//  显示: 状态名 + 详情 + 最近错误 + 操作按钮
+//
+// ★ 本卡只保留**同步**相关的内容。进程列表、同步游标、卡死告警都已
+//   搬到首页 —— 它们描述的是"软件/iCloud 进程运行得怎么样", 属于软件
+//   状态, 不是云盘内容。放在云盘页会让人以为只有打开云盘页才能看到
+//   程序是否正常。
 // ======================================================================
 import QtQuick 2.15
 import QtQuick.Controls 2.15
@@ -8,10 +14,15 @@ import QtQuick.Layouts 1.15
 
 Rectangle {
     id: root
-    implicitHeight: 96
+    // 进程/游标搬走后, 卡片只剩"状态名 + 详情 + 按钮"。
+    // 高度按内容算: 上下边距 spL*2 + 状态名行(12px 圆点撑起约 30)
+    // + 详情行(约 17)。写 72 时详情行底部会被卡片下边缘压到,
+    // 改成 80 留足呼吸。
+    implicitHeight: 80
     color: Theme.bgPanel
     radius: Theme.radius
     border.width: 1
+    border.color: Theme.border
 
     // 窗口缩到最小宽度时, 卡片内容可能比可视区宽。
     // 不裁的话, 右侧的"刷新/更新时间"会画到卡片外面、被页面边界切掉
@@ -19,17 +30,9 @@ Rectangle {
     // 也不能让控件溢出容器。
     clip: true
 
-    // 异常时边框转红。原来是"动画中介色 + 无限呼吸", 现在直接静态赋色。
-    border.color: Bridge.anomalous ? Theme.err : Theme.border
-
-    // 这里原来是一个 loops: Animation.Infinite 的边框呼吸动画,
-    // running 绑定 Bridge.anomalous。
-    //
-    // 已删除。原因: 卡死是**持续状态**(实测本机停滞已超 800 秒),
-    // 也就是 anomalous 长期为 true, 这个无限动画就等于让整个窗口
-    // 无休止地按 60fps 重绘 —— 拖动窗口必然卡顿。
-    // 异常已经有顶部红色横幅明确表达, 边框静态变红即可,
-    // 不靠动画传递信息, 也不丢任何信息量。
+    // ★ 这里原来会 `border.color: Bridge.anomalous ? Theme.err : ...`
+    //   (卡死时边框转红)。已去掉: 卡死告警连同进程列表一起搬到首页了,
+    //   这张卡只表达同步状态, 不该被"程序异常"染色。
 
     RowLayout {
         anchors.fill: parent
@@ -40,6 +43,7 @@ Rectangle {
         ColumnLayout {
             spacing: 2
             Layout.alignment: Qt.AlignVCenter
+            Layout.minimumWidth: 0
 
             RowLayout {
                 spacing: 8
@@ -54,6 +58,10 @@ Rectangle {
                                        : Theme.err
                     font.pixelSize: Theme.fsHuge
                     font.bold: true
+                    // 状态名是变长文本(最长"双向传输"), 右侧是操作按钮。
+                    // 给收缩上限, 窗口变窄时被截的是状态名而不是按钮。
+                    Layout.maximumWidth: 220
+                    elide: Text.ElideRight
                 }
             }
 
@@ -61,6 +69,8 @@ Rectangle {
                 text: Bridge.stateDetail
                 color: Theme.textMid
                 font.pixelSize: Theme.fsBody
+                Layout.minimumWidth: 0
+                elide: Text.ElideRight
             }
         }
 
@@ -69,63 +79,20 @@ Rectangle {
             color: Theme.border
         }
 
-        // ── 游标 / 错误 / 进程 ──
-        ColumnLayout {
+        // ── 最近错误(属于同步, 留在这里) ──
+        //
+        // 进程列表/游标已移到首页。这里只放错误信息 —— 它是同步出问题时
+        // 的直接原因, 与状态名同属一块, 放在旁边才说得通。
+        Label {
+            text: Bridge.lastError
+            visible: text !== ""
+            color: Theme.err
+            font.pixelSize: Theme.fsSmall
             Layout.fillWidth: true
-            // ★ 这是"刷新按钮被裁掉"的真正根因, 不是 clip:
-            //   RowLayout 会把每个子项的 implicitWidth 累加作为最小需求。
-            //   下面三个 Label(游标/错误/进程列表)都是不换行的长文本 ——
-            //   进程列表尤其长, 四个进程名逗号连接能有几百像素。它们的
-            //   implicitWidth 累加超过卡片宽度后, RowLayout 只能把右侧
-            //   "刷新/更新时间"那一列挤出可视区。
-            //   Layout.minimumWidth: 0 明确允许这一列被压缩到 0 宽,
-            //   再配合下面 Label 的 elide, 长文本就会省略号收尾而不是撑开布局。
+            // 长错误信息必须能省略收尾, 否则 implicitWidth 会把右侧
+            // "刷新/打开目录"按钮挤出卡片(实测踩过: 按钮只剩半个字)。
             Layout.minimumWidth: 0
-            spacing: 4
-            Layout.alignment: Qt.AlignVCenter
-
-            RowLayout {
-                // 游标行自身也要能收缩, 否则它的 Label 一样会把宽度顶开
-                Layout.fillWidth: true
-                Layout.minimumWidth: 0
-                spacing: 6
-                Label {
-                    text: Bridge.inSync ? "✓" : "⟳"
-                    color: Bridge.inSync ? Theme.ok : Theme.warn
-                    font.pixelSize: Theme.fsBody
-                    font.bold: true
-                }
-                Label {
-                    text: Bridge.rankText
-                    color: Theme.textLo
-                    font.pixelSize: Theme.fsSmall
-                    font.family: "Consolas, monospace"
-                    Layout.fillWidth: true
-                    Layout.minimumWidth: 0
-                    elide: Text.ElideRight
-                }
-            }
-
-            Label {
-                text: Bridge.lastError
-                visible: text !== ""
-                color: Theme.err
-                font.pixelSize: Theme.fsSmall
-                Layout.fillWidth: true
-                Layout.minimumWidth: 0
-                elide: Text.ElideRight
-            }
-
-            Label {
-                text: Bridge.icloudProcesses
-                visible: text !== ""
-                color: Theme.textLo
-                font.pixelSize: Theme.fsTiny
-                font.family: "Consolas, monospace"
-                Layout.fillWidth: true
-                Layout.minimumWidth: 0
-                elide: Text.ElideRight
-            }
+            elide: Text.ElideRight
         }
 
         // ── 操作区(刷新 + 打开目录) ──
@@ -174,10 +141,11 @@ Rectangle {
             }
 
             Label {
-                // 在 ColumnLayout 里不能用 anchors 居中(会与 Layout 打架),
-                // 要用 Layout.alignment
+                // ★ "更新 时间"已移到首页。
+                //   它是**整个程序**的采样时刻(所有页面的数据都来自这一次
+                //   采样), 不只云盘页 —— 放在这里会让人误以为只有云盘在刷新。
                 Layout.alignment: Qt.AlignHCenter
-                text: "更新 " + Bridge.timestamp
+                text: "云盘数据"
                 color: Theme.textLo
                 font.pixelSize: Theme.fsTiny
             }

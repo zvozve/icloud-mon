@@ -59,7 +59,8 @@ Item {
             //   现移到首页: 首页是应用的入口页, 全局操作放这里最自然。
             Rectangle {
                 Layout.fillWidth: true
-                Layout.preferredHeight: 64
+                // 加入"更新时刻 + 刷新按钮"后高度从 64 提到 72
+                Layout.preferredHeight: 72
                 color: Theme.bgPanel
                 radius: Theme.radius
                 border.color: Theme.border
@@ -121,6 +122,34 @@ Item {
                         color: Bridge.dbOk ? Theme.textLo : Theme.err
                         font.pixelSize: Theme.fsSmall
                     }
+
+                    Rectangle {
+                        width: 1; height: 14
+                        color: Theme.border
+                        Layout.alignment: Qt.AlignVCenter
+                    }
+
+                    // 采样时刻 + 手动刷新。
+                    //
+                    // ★ 从云盘页状态卡搬来: 它是**整个程序**的采样时刻
+                    //   (所有页面的数据都来自这一次采样), 放在云盘页会让人
+                    //   误以为只有云盘在刷新。首页才是"程序整体状态"的所在。
+                    Label {
+                        text: "更新 " + Bridge.timestamp
+                        color: Theme.textLo
+                        font.pixelSize: Theme.fsSmall
+                    }
+
+                    AppButton {
+                        kind: "ghost"
+                        minW: 60
+                        padH: 6
+                        text: "刷新"
+                        onClicked: Bridge.refreshNow()
+                        ToolTip.visible: hovered
+                        ToolTip.text: "立即刷新 (每 " + Bridge.refreshSec + " 秒自动)"
+                        ToolTip.delay: 500
+                    }
                 }
             }
 
@@ -128,6 +157,92 @@ Item {
                 text: "点卡片进入对应页面看细节。未启用的类别已隐藏(可在设置里改)。"
                 color: Theme.textLo
                 font.pixelSize: Theme.fsSmall
+            }
+
+            // ── 卡死告警(软件自身状态) ──
+            //
+            // ★ 从云盘页搬到这里。
+            //   卡死/进程/游标是**软件与 iCloud 进程的状态**, 虽然数据来自
+            //   iCloudDrive.db, 但它描述的是"程序运行得怎么样", 而不是
+            //   "云盘里有什么文件"。放在云盘页会让人误以为只有打开云盘页
+            //   才能看到告警 —— 出问题时最该第一时间看到的地方反而是首页。
+            //   首页是入口页, 全局告警放这里最合理。
+            AlertBanner {
+                Layout.fillWidth: true
+                visible: Bridge.anomalous
+                Layout.preferredHeight: visible ? implicitHeight : 0
+                Behavior on Layout.preferredHeight {
+                    NumberAnimation { duration: 180; easing.type: Easing.OutCubic }
+                }
+            }
+
+            // ── 进程列表 + 同步游标 ──
+            //
+            // 同理搬过来: 这是软件状态, 不是云盘内容。
+            // 放在 iCloud 控制区正下方, 形成"开关 → 实际跑了哪些进程"的一组。
+            Rectangle {
+                Layout.fillWidth: true
+                // 进程列表与游标都在时约两行(16+14)+边距; 只有其一时更矮。
+                Layout.preferredHeight: 16 + (Bridge.icloudProcesses !== "" ? 20 : 0)
+                                         + (Bridge.rankText !== "" ? 20 : 0)
+                                         + Theme.sp * 2
+                color: Theme.bgPanel
+                radius: Theme.radius
+                border.color: Theme.border
+                border.width: 1
+
+                ColumnLayout {
+                    anchors.fill: parent
+                    anchors.margins: Theme.sp
+                    spacing: 4
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Layout.minimumWidth: 0
+                        spacing: 6
+                        visible: Bridge.icloudProcesses !== ""
+
+                        Label {
+                            text: "进程"
+                            color: Theme.textLo
+                            font.pixelSize: Theme.fsTiny
+                        }
+                        Label {
+                            text: Bridge.icloudProcesses
+                            color: Bridge.icloudRunning ? Theme.textMid : Theme.err
+                            font.pixelSize: Theme.fsTiny
+                            font.family: "Consolas, monospace"
+                            Layout.fillWidth: true
+                            Layout.minimumWidth: 0
+                            // 进程名可能很长(4 个 exe 逗号连接),
+                            // 必须能省略收尾, 否则会把布局撑开
+                            elide: Text.ElideRight
+                        }
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Layout.minimumWidth: 0
+                        spacing: 6
+                        visible: Bridge.rankText !== ""
+
+                        Label {
+                            text: Bridge.inSync ? "✓" : "⟳"
+                            color: Bridge.inSync ? Theme.ok : Theme.warn
+                            font.pixelSize: Theme.fsSmall
+                            font.bold: true
+                        }
+                        Label {
+                            text: Bridge.rankText
+                            color: Theme.textLo
+                            font.pixelSize: Theme.fsTiny
+                            font.family: "Consolas, monospace"
+                            Layout.fillWidth: true
+                            Layout.minimumWidth: 0
+                            elide: Text.ElideRight
+                        }
+                    }
+                }
             }
 
             Repeater {

@@ -51,15 +51,13 @@ Item {
             // 截图里就出现过"云端状态分布"和"待处理项"糊成一片的感觉。
             spacing: Theme.spL
 
-            // ── 异常横幅 ──
-            AlertBanner {
-                Layout.fillWidth: true
-                visible: Bridge.anomalous
-                Layout.preferredHeight: visible ? implicitHeight : 0
-                Behavior on Layout.preferredHeight {
-                    NumberAnimation { duration: 180; easing.type: Easing.OutCubic }
-                }
-            }
+            // ── 卡死告警已移到首页 ──
+            // AlertBanner(卡死/进程/游标) 已搬到首页 —— 那是**软件状态**,
+            // 不是云盘内容。放在这里会让人以为"只有打开云盘页才看得到告警",
+            // 而出问题时最该第一时间看到的地方是入口页(首页)。
+            //
+            // ★ 云盘页现在只保留纯同步内容: 状态名、三队列、云端分布、
+            //   待处理项、回收站。
 
             // ── 状态卡 ──
             StatusCard {
