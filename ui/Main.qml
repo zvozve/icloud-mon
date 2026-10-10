@@ -344,23 +344,23 @@ ApplicationWindow {
                                 else         Bridge.stopIcloud()
                             }
                             ToolTip.visible: hovered
-                            ToolTip.text: Bridge.icloudRunning
-                                          ? "点一下停止 iCloud"
-                                          : "点一下启动 iCloud"
+                            // 顺带说明重启去哪了 —— 顶栏那个「重启」按钮已删,
+                            // 现在只在异常横幅里提供, 这里说明一下免得找不到。
+                            ToolTip.text: (Bridge.icloudRunning
+                                            ? "点一下停止 iCloud"
+                                            : "点一下启动 iCloud")
+                                          + "\n需要重启时看页面顶部的红色横幅"
                             ToolTip.delay: 500
                         }
 
-                        AppButton {
-                            id: restartBtn
-                            kind: "ghost"
-                            minW: 72
-                            text: Bridge.busyRestarting ? "重启中..." : "重启"
-                            enabled: !Bridge.busyRestarting
-                            onClicked: Bridge.restartIcloud()
-                            ToolTip.visible: hovered
-                            ToolTip.text: "结束全部 iCloud 进程后重新启动"
-                            ToolTip.delay: 600
-                        }
+                        // ★ 这里原来还有一个「重启」按钮, 与左侧的启停开关
+                        //   并排显示, 视觉上两个控件挨在一起、语义又相近
+                        //   (都是对 iCloud 进程动手), 显得重复且挤。
+                        //   已删除: 重启这个动作在异常横幅(AlertBanner)里
+                        //   有一个更醒目的「重启 iCloud」按钮 —— 那才是需要
+                        //   重启时的入口(有异常才提示), 顶栏常驻一个
+                        //   正常状态下用不上的按钮是冗余。
+                        //   启用/停用仍用左侧开关, 打开目录用右侧文件夹图标。
                     }
 
                     // 打开 iCloud 目录。

@@ -40,7 +40,7 @@ Item {
         // 成 AlwaysOff, 不需要靠撑大 contentHeight 来消除滚动条。
         // 上下留白必须与 col 的 y 偏移(Theme.spXL)和底部收尾一致,
         // 否则底部会多出或少掉一段空白。
-        contentHeight: col.implicitHeight + Theme.spXL * 2
+        contentHeight: col.implicitHeight + Theme.spL * 2
         clip: true
         boundsBehavior: Flickable.StopAtBounds
 
@@ -53,45 +53,67 @@ Item {
             id: col
             width: body.width - Theme.spL * 2
             x: Theme.spL
-            // 顶部留白用 spXL(24)。原来用 spL(16), 在纯文字页面上方
-            // 显得很挤 —— 标题几乎贴着顶栏底边(书签/密码/相册页都有这感,
-            // 因为这三页顶部是 Label 而非带边框的面板, 没有边框做视觉分隔,
-            // 16px 看着就像没留白)。24px 才有明确的"内容从下方开始"的感觉。
-            y: Theme.spXL
-            spacing: Theme.sp
+            // 留白用 spL(16), 与其它页一致。
+            // 注意: 上一版这里误把 y 偏移整行删掉了(只剩注释), 于是 y=0,
+            // 内容直接顶到页面最上沿 —— 那才是"顶部贴住"的真正原因。
+            // 现在标题已包进带边框的面板容器(见下), 有明确边界, 16px 足够。
+            // 留白的作用是"别贴边", 不是"越宽越好", 过大反而显得松散。
+            y: Theme.spL
+            spacing: Theme.spL
 
             // ── 标题行 ──
-            RowLayout {
+            //
+            // ★ 为什么要包一层带边框的容器(而不是只靠 y 偏移留白):
+            //   像素级实测(1085x850 截图扫描):
+            //     书签页 y=48~78 全是 rgb(22,24,29) 页面背景, y=84 直接出现
+            //     标题文字 —— 顶栏与标题之间 36px 全是空的深色背景,
+            //     没有任何边界, 所以无论留白加到多少都"看着贴住"。
+            //     云盘页则不同: y=72 就出现 rgb(45,50,60)(面板底色),
+            //     因为它第一个元素是带边框的面板, 天然有视觉分隔。
+            //   所以纯文字页(书签/密码/相册)的正确修法不是继续加大留白,
+            //   而是给标题一个和云盘页一样的容器 —— 有了边框和底色,
+            //   上下自然分开, 不再像贴着顶栏。
+            Rectangle {
                 Layout.fillWidth: true
-                spacing: Theme.sp
+                Layout.preferredHeight: 56
+                color: Theme.bgPanel
+                radius: Theme.radius
+                border.color: Theme.border
+                border.width: 1
 
-                Rectangle {
-                    width: 10; height: 10; radius: 5
-                    Layout.alignment: Qt.AlignVCenter
-                    color: page.isOn ? Theme.ok : Theme.textLo
-                }
-                Label {
-                    text: page.cat ? page.cat.name : page.catKey
-                    color: Theme.textHi
-                    font.pixelSize: Theme.fsBig
-                    font.bold: true
-                }
-                Rectangle {
-                    visible: !page.isOn
-                    Layout.alignment: Qt.AlignVCenter
-                    width: 64; height: 22
-                    radius: 11
-                    color: Theme.bgInput
-                    border.color: Theme.borderHi
-                    border.width: 1
-                    Text {
-                        anchors.centerIn: parent
-                        text: "未启用"
-                        color: Theme.textLo
-                        font.pixelSize: Theme.fsSmall
+                RowLayout {
+                    anchors.fill: parent
+                    anchors.margins: Theme.spL
+                    spacing: Theme.sp
+
+                    Rectangle {
+                        width: 10; height: 10; radius: 5
+                        Layout.alignment: Qt.AlignVCenter
+                        color: page.isOn ? Theme.ok : Theme.textLo
                     }
+                    Label {
+                        text: page.cat ? page.cat.name : page.catKey
+                        color: Theme.textHi
+                        font.pixelSize: Theme.fsBig
+                        font.bold: true
+                    }
+                    Rectangle {
+                        visible: !page.isOn
+                        Layout.alignment: Qt.AlignVCenter
+                        width: 64; height: 22
+                        radius: 11
+                        color: Theme.bgInput
+                        border.color: Theme.borderHi
+                        border.width: 1
+                        Text {
+                            anchors.centerIn: parent
+                            text: "未启用"
+                            color: Theme.textLo
+                            font.pixelSize: Theme.fsSmall
+                        }
+                    }
+                    Item { Layout.fillWidth: true }
                 }
-                Item { Layout.fillWidth: true }
             }
 
             // 未启用时给一条醒目的说明, 免得以为是"没数据"

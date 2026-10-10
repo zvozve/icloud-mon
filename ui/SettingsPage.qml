@@ -45,7 +45,7 @@ Item {
         // 成 AlwaysOff, 不需要靠撑大 contentHeight 来消除滚动条。
         // 上下留白必须与 col 的 y 偏移(Theme.spXL)和底部收尾一致,
         // 否则底部会多出或少掉一段空白。
-        contentHeight: col.implicitHeight + Theme.spXL * 2
+        contentHeight: col.implicitHeight + Theme.spL * 2
         clip: true
         boundsBehavior: Flickable.StopAtBounds
 
@@ -59,7 +59,7 @@ Item {
             // 限宽并居中。这里没有 fillHeight 子项, 所以不必给确定高度。
             width: Math.min(body.width - Theme.spL * 2, 640)
             x: (body.width - width) / 2
-            y: Theme.spXL
+            y: Theme.spL
             spacing: Theme.spL
 
             Label {

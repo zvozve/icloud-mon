@@ -35,7 +35,7 @@ Item {
         // 成 AlwaysOff, 不需要靠撑大 contentHeight 来消除滚动条。
         // 上下留白必须与 col 的 y 偏移(Theme.spXL)和底部收尾一致,
         // 否则底部会多出或少掉一段空白。
-        contentHeight: col.implicitHeight + Theme.spXL * 2
+        contentHeight: col.implicitHeight + Theme.spL * 2
         clip: true
         boundsBehavior: Flickable.StopAtBounds
 
@@ -52,7 +52,7 @@ Item {
             // 显得很挤 —— 标题几乎贴着顶栏底边(书签/密码/相册页都有这感,
             // 因为这三页顶部是 Label 而非带边框的面板, 没有边框做视觉分隔,
             // 16px 看着就像没留白)。24px 才有明确的"内容从下方开始"的感觉。
-            y: Theme.spXL
+            y: Theme.spL
             spacing: Theme.sp
 
             Label {
