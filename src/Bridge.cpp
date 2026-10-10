@@ -319,6 +319,32 @@ void Bridge::openDriveRoot()
     QProcess::startDetached(QStringLiteral("explorer.exe"), { dir });
 }
 
+void Bridge::openCloudTrash()
+{
+    // iCloud Drive 的回收站是同步根下的隐藏目录 .Trash。
+    // (实测本机: C:\Container\Cloud\iCloudDrive\.Trash 确实存在)
+    // ★ 只"打开查看", 本程序不提供任何删除/清空动作 —— 删除是不可逆的,
+    //   不该由一个监控程序代劳。
+    const QString dir = paths::driveRoot() + QStringLiteral("/.Trash");
+    if (!QDir(dir).exists()) {
+        log::warn(QStringLiteral("iCloud 回收站不存在: %1").arg(dir));
+        emit notify(QStringLiteral("info"),
+                    QStringLiteral("iCloud 回收站还不存在（还没有删除过文件）"));
+        return;
+    }
+    log::userAction(QStringLiteral("打开 iCloud 回收站"), dir);
+    QProcess::startDetached(QStringLiteral("explorer.exe"), { dir });
+}
+
+void Bridge::openSystemTrash()
+{
+    // 打开系统回收站。shell:RecycleBinFolder 是系统内置的文件夹标识,
+    // explorer 认它, 不需要 SHFileOperation 那种会弹确认框的老 API。
+    log::userAction(QStringLiteral("打开系统回收站"));
+    QProcess::startDetached(QStringLiteral("explorer.exe"),
+                             { QStringLiteral("shell:RecycleBinFolder") });
+}
+
 bool Bridge::setDriveRoot(const QString &path)
 {
     const QString clean = QDir::cleanPath(QDir::fromNativeSeparators(path));

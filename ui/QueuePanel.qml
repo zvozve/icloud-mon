@@ -195,7 +195,12 @@ Rectangle {
                 }
                 Label {
                     text: root.extraText
-                    color: Theme.info
+                    // ★ 用中性灰, 不用 Theme.info(蓝)。
+                    //   蓝色在这个界面里是"可点击/强调"的约定色(如仓库链接、
+                    //   游标的 ✓ 标记), 删除面板里给一句纯说明文字上蓝色,
+                    //   看着像能点 —— 用户确实被误导了("看着还以为能点呢")。
+                    //   这是一句陈述, 不是操作入口, 就该用 textMid/textLo。
+                    color: Theme.textMid
                     font.pixelSize: Theme.fsSmall
                 }
             }

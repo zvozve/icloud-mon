@@ -382,6 +382,10 @@ public:
     // 拖动一次可能跨多项。
     Q_INVOKABLE void moveCategoryTo(const QString &key, int toIndex);
     Q_INVOKABLE void resetNavOrder();
+    // 打开 iCloud 回收站目录(<同步根>/.Trash) 与系统回收站。
+    // 这是**看**, 不是改 —— 删除动作一律不在本程序里做。
+    Q_INVOKABLE void openCloudTrash();
+    Q_INVOKABLE void openSystemTrash();
     // 显示名(供顺序设置界面显示"云盘"而不是"drive")
     Q_INVOKABLE QString categoryName(const QString &key) const;
     Q_PROPERTY(QString defaultPage READ defaultPage WRITE setDefaultPage

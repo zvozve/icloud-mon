@@ -425,6 +425,7 @@ Item {
 
                     RowLayout {
                         Layout.fillWidth: true
+                        spacing: 6
                         Label {
                             text: "回收站"
                             color: Theme.textHi
@@ -432,6 +433,36 @@ Item {
                             font.bold: true
                         }
                         Item { Layout.fillWidth: true }
+
+                        // 两个"打开回收站"入口。
+                        //
+                        // 放这里而不是状态卡: 它们服务的正是这一块内容,
+                        // 放在"回收站"标题右侧语义最贴。
+                        //
+                        // ★ 两个都是**只看不改**的入口, 不含任何删除/清空
+                        //   动作 —— 删除不可逆, 不该由监控程序代劳。
+                        AppButton {
+                            kind: "ghost"
+                            minW: 0
+                            padH: 5
+                            text: "云盘回收站"
+                            onClicked: Bridge.openCloudTrash()
+                            ToolTip.visible: hovered
+                            ToolTip.text: "打开 iCloud 回收站目录"
+                            ToolTip.delay: 600
+                        }
+
+                        AppButton {
+                            kind: "ghost"
+                            minW: 0
+                            padH: 5
+                            text: "系统回收站"
+                            onClicked: Bridge.openSystemTrash()
+                            ToolTip.visible: hovered
+                            ToolTip.text: "打开 Windows 系统回收站"
+                            ToolTip.delay: 600
+                        }
+
                         Label {
                             text: Bridge.trashItems.count + " 项（可恢复）"
                             color: Theme.textLo
