@@ -12,6 +12,7 @@
 #include <QSettings>
 #include <QString>
 #include <QStringList>
+#include <QStandardPaths>
 
 namespace icloud {
 
@@ -71,14 +72,51 @@ inline void clearDriveRoot()
     s.sync();
 }
 
+// 当前用户的 Local AppData 根目录 (C:/Users/<当前用户>/AppData/Local)。
+// ⚠ 之前硬编码成 C:/Users/USIDE/... —— 换用户名/换电脑即失效。
+// 这里改走 LOCALAPPDATA 环境变量 (Windows 必有), 缺失时再用
+// QStandardPaths 兜底, 彻底消除"写死用户名"问题。
+inline QString localAppData()
+{
+    QString p = QString::fromLocal8Bit(qgetenv("LOCALAPPDATA"));
+    if (!p.isEmpty())
+        return QDir::fromNativeSeparators(p);
+    QString alt = QStandardPaths::writableLocation(
+        QStandardPaths::AppLocalDataLocation);
+    if (!alt.isEmpty()) {
+        QDir d(alt);
+        d.cdUp(); d.cdUp();   // 去掉 /<org>/<app>, 回到 Local 根
+        return QDir::fromNativeSeparators(d.absolutePath());
+    }
+    return QDir::homePath() + QStringLiteral("/AppData/Local");
+}
+
 // Store 版 iCloud 的包目录
+//
+// 包族名 AppleInc.iCloud_nzyj5cx40ttqa 的发布者 ID 后缀全球一致
+// (由 Apple 证书决定, 与机器/用户无关), 默认直接用即可。
+// 仅当默认名在 Packages 下不存在时, 才退化为枚举 AppleInc.iCloud* 前缀,
+// 兼容极少数发布者 ID 不同的极端情况。
 inline QString packageDir()
 {
     const QByteArray e = qgetenv("ICLOUD_PKG_DIR");
-    return e.isEmpty()
-        ? QStringLiteral("C:/Users/USIDE/AppData/Local/Packages/"
-                         "AppleInc.iCloud_nzyj5cx40ttqa")
-        : QString::fromLocal8Bit(e);
+    if (!e.isEmpty())
+        return QString::fromLocal8Bit(e);
+
+    const QString base = localAppData()
+        + QStringLiteral("/Packages");
+    const QString fixed = base
+        + QStringLiteral("/AppleInc.iCloud_nzyj5cx40ttqa");
+    if (QDir(fixed).exists())
+        return fixed;
+
+    const QStringList hits = QDir(base).entryList(
+        QStringList() << QStringLiteral("AppleInc.iCloud*"),
+        QDir::Dirs | QDir::NoDotAndDotDot);
+    if (!hits.isEmpty())
+        return base + QStringLiteral("/") + hits.first();
+
+    return fixed;   // 都没找到也返回默认, 让上层报"数据库不存在"而非崩溃
 }
 
 // iCloudDrive.db 所在目录 (LocalCache/Local/Apple Inc/iCloudDrive)
