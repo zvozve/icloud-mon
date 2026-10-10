@@ -30,17 +30,37 @@ ApplicationWindow {
     minimumWidth: 860
     minimumHeight: 620
     visible: true
-    // 标题栏带版本号: 排障时一眼确认跑的是哪个 build。
+    // 标题栏: 应用名 + 版本 + 当前页名。
     // AppVersion 由 main.cpp 注入(= CMake project VERSION)。
-    title: (Bridge.stateName === "未知"
-            ? "iCloud 状态监控 v" + AppVersion
-            : "iCloud 状态监控 v" + AppVersion + " - " + Bridge.stateName)
+    //
+    // ★ 原来标题里带了 Bridge.stateName(如"iCloud 状态监控 v1.0.1 - 已同步"),
+    //   那也是一处状态显示。既然状态只在云盘页的状态卡里展示(顶栏已删),
+    //   标题栏就跟着去掉 —— 标题栏是**所有页面共用**的框架, 在书签页的
+    //   标题里写"已同步"同样是噪音。改用 pageTitle(当前页名), 与顶栏
+    //   左侧显示的是同一个信息, 两处一致而不是各说各话。
+    title: "iCloud 状态监控 v" + AppVersion
+           + (pageTitle !== "" ? " - " + pageTitle : "")
     color: Theme.bgRoot
 
     // 导航栏是否展开(仅图标 <-> 图标+文字)
     property bool navExpanded: true
     // 当前页面 key: home | drive | photos | passwords | bookmarks | settings
     property string currentKey: "home"
+
+    // 当前页面的中文名, 给顶栏与窗口标题共用。
+    // 从 Bridge.categories 取(它同时是侧边栏的数据源), 所以未启用的
+    // 类别被隐藏时这里也拿不到名字, 不会出现"显示着书签但侧边栏没有书签"。
+    readonly property string pageTitle: {
+        switch (currentKey) {
+        case "home":      return "首页"
+        case "drive":     return "云盘"
+        case "settings":  return "设置"
+        }
+        for (var i = 0; i < Bridge.categories.length; ++i)
+            if (Bridge.categories[i].key === currentKey)
+                return Bridge.categories[i].name
+        return ""
+    }
 
     // 启动时按用户设置的默认启动页定位
     Component.onCompleted: currentKey = Bridge.defaultPage
@@ -284,29 +304,40 @@ ApplicationWindow {
                     anchors.rightMargin: Theme.spL
                     spacing: Theme.sp
 
-                    Rectangle {
-                        width: 10; height: 10; radius: 5
-                        color: Theme.stateColor(Bridge.stateName)
-                        Behavior on color { ColorAnimation { duration: 300 } }
-                    }
+                    // ★ 这里原来有"状态圆点 + 状态名"(如"● 已同步"),
+                    //   已删除。
+                    //
+                    //   理由: 顶栏是**所有页面共用**的框架, 而"同步状态"
+                    //   只对云盘页有意义 —— 书签/密码/相册/设置这些页面
+                    //   根本不涉及上传下载队列, 在它们顶栏挂一个"已同步"
+                    //   是纯噪音(而且会让人误以为该页也在同步)。
+                    //   状态显示的唯一权威位置是云盘页的 StatusCard,
+                    //   那里有上下文、有队列明细、有游标, 状态才有意义。
+                    //
+                    //   同一屏出现两处状态(顶栏 + 状态卡)也是重复 —— 用户
+                    //   明确要求"只需要一处状态显示"。
+                    //
+                    //   左侧改成: 当前页名 + 分隔线 + iCloud 版本 —— 两者都是
+                    //   **全局**信息(我在哪个页面 / 跑的是哪个 iCloud),
+                    //   每个页面都该看到, 且不涉及任何页面的专有状态。
 
                     Label {
-                        text: Bridge.stateName
-                        color: Bridge.dbOk ? Theme.stateColor(Bridge.stateName)
-                                           : Theme.err
+                        text: win.pageTitle
+                        color: Theme.textHi
                         font.pixelSize: Theme.fsTitle
                         font.bold: true
-                        // 与 StatusCard 同理: 状态名是变长文本(最长"双向传输"),
-                        // 顶栏右侧是"重启/打开目录"操作按钮。给中间这段设
-                        // 收缩上限, 窗口变窄时被截的是状态名而不是按钮。
-                        Layout.maximumWidth: 140
-                        elide: Text.ElideRight
+                    }
+
+                    Rectangle {
+                        width: 1; height: 14
+                        color: Theme.border
+                        Layout.alignment: Qt.AlignVCenter
                     }
 
                     Label {
-                        text: Bridge.dbOk ? ("v" + Bridge.clientVersion)
+                        text: Bridge.dbOk ? ("iCloud v" + Bridge.clientVersion)
                                           : "数据库不可读"
-                        color: Theme.textLo
+                        color: Bridge.dbOk ? Theme.textLo : Theme.err
                         font.pixelSize: Theme.fsSmall
                     }
 
