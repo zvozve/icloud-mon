@@ -2,7 +2,9 @@
 
 #include <QCoreApplication>
 #include <QDir>
+#include <QFile>
 #include <QFileInfo>
+#include <QStandardPaths>
 #include <QString>
 
 #include "spdlog/sinks/daily_file_sink.h"
@@ -33,13 +35,35 @@ bool init()
     if (g_inited)
         return true;
 
-    // 日志目录: exe 同级\log\。用 applicationDirPath 而非 AppData,
-    // 因为这个目录要能直接拷给排障的人。
+    // 日志目录策略: 优先 exe 同级\log\ (开发/绿色版时方便直接拷给排障的人),
+    // 但**必须探测真实可写**再决定用哪个:
+    //   · 装到 Program Files 是只读的 -> 那里建目录/写文件会失败;
+    //   · Enigma VB 打包的单文件是**虚拟化**运行, exe 目录在容器里,
+    //     mkpath 可能"成功"但写进去的日志随容器销毁而丢失, 等于没记。
+    // 所以依次尝试 exe同级 与 用户AppData, 用"能不能真的写出一个探针文件"
+    // 来判定, 第一个可写的就用它; 都不可写就只留 stderr(不硬写)。
     const QString exeDir = QCoreApplication::applicationDirPath();
-    g_dir = exeDir + QDir::separator() + QStringLiteral("log");
-
-    if (!QDir().mkpath(g_dir)) {
-        // 建不了目录就别硬写, 否则每条日志都报错刷屏
+    const QStringList candidates = {
+        exeDir + QDir::separator() + QStringLiteral("log"),
+        QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
+            + QDir::separator() + QStringLiteral("log"),
+    };
+    g_dir.clear();
+    for (const QString &c : candidates) {
+        if (c.isEmpty() || !QDir().mkpath(c))
+            continue;
+        // 真实写一个探针文件验证可写(虚拟化目录 mkpath 可能假成功)
+        const QString probe = c + QDir::separator() + QStringLiteral(".wtest");
+        QFile f(probe);
+        if (f.open(QIODevice::WriteOnly)) {
+            f.close();
+            QFile::remove(probe);
+            g_dir = c;
+            break;
+        }
+    }
+    if (g_dir.isEmpty()) {
+        // 一个都写不了: 别硬写, 否则每条日志都报错刷屏
         g_inited = true;
         return false;
     }

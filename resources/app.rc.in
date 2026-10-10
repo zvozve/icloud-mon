@@ -1,0 +1,48 @@
+// ======================================================================
+//  app.rc.in  -  exe PE resources (icon + version info).
+//  Processed by CMake configure_file into build/iCloudMon_resources.rc
+//
+//  WHY: The file icon shown by Explorer / taskbar / Alt-Tab is the .ico
+//  embedded in the PE resources. That is a DIFFERENT mechanism from the
+//  runtime QGuiApplication::setWindowIcon(qsvg loading icloud.svg), which
+//  only affects the window. An .ico cannot hold SVG, so resources/icloud.ico
+//  is pre-generated from icloud.svg by packaging/make_ico (multi-size,
+//  PNG-in-ICO).
+//
+//  @ICON_PATH@ is replaced by CMake with the .ico ABSOLUTE path: rc.exe does
+//  not resolve ICON relative paths against the .rc location, and an absolute
+//  path must not be hard-coded in the repo.
+//
+//  NOTE: keep this file pure ASCII. rc.exe parses the file with the system
+//  code page; non-ASCII bytes inside the resource block can break parsing.
+// ======================================================================
+
+IDI_APP_ICON ICON "@ICON_PATH@"
+
+1 VERSIONINFO
+FILEVERSION @VER_MAJOR@,@VER_MINOR@,@VER_PATCH@,0
+PRODUCTVERSION @VER_MAJOR@,@VER_MINOR@,@VER_PATCH@,0
+FILEFLAGSMASK 0x3fL
+FILEFLAGS 0x0L
+FILEOS 0x40004L
+FILETYPE 0x1L
+FILESUBTYPE 0x0L
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "080404B0"
+        BEGIN
+            VALUE "CompanyName", "zvozve"
+            VALUE "FileDescription", "iCloud Drive Sync Monitor"
+            VALUE "FileVersion", "@VER_MAJOR@.@VER_MINOR@.@VER_PATCH@"
+            VALUE "InternalName", "iCloudMon"
+            VALUE "OriginalFilename", "iCloudMon.exe"
+            VALUE "ProductName", "iCloudMon"
+            VALUE "ProductVersion", "@VER_MAJOR@.@VER_MINOR@.@VER_PATCH@"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x804, 1200
+    END
+END

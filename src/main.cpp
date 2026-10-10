@@ -380,6 +380,27 @@ int main(int argc, char *argv[])
     QGuiApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
     QGuiApplication::setAttribute(Qt::AA_UseHighDpiPixmaps);
 
+    // ★ 图形后端: 默认用 ANGLE(D3D11) 提供 OpenGL, 绕开失效的桌面 GL。
+    //
+    // 实测本机(日志证据): Qt 解析到 OpenGL 后端, 但场景图 5 秒都没初始化,
+    // 表现是**白屏 + 窗口只出现在任务栏预览**(窗口建了但渲染不出来)。
+    // 这是桌面 OpenGL 在部分显卡/驱动上失效的典型症状, 与 QML 无关。
+    //
+    // 做法: 保留 OpenGL 场景图(最成熟、QtQuick 控件全兼容), 只把底层 GL
+    // 实现换成 ANGLE(OpenGL-on-D3D11), 兼容性显著更好。
+    // ⚠ 这里**不是** setSceneGraphBackend("angle") —— angle 不是场景图后端名,
+    //   场景图后端只有 opengl/software/d3d11/vulkan/metal; angle 是 QT_OPENGL
+    //   的取值(即"用 ANGLE 提供 GL")。两者别混。
+    //
+    // qputenv 必须在 QGuiApplication 构造**之前**(QT_OPENGL 在创建第一个 GL
+    // 上下文时被读取)。用户已用 QT_OPENGL/QT_QUICK_BACKEND 指定过时一律尊重,
+    // 不强加, 方便个别机器仍想试别的后端。
+    if (qEnvironmentVariableIsEmpty("QT_OPENGL")
+        && qEnvironmentVariableIsEmpty("QT_QUICK_BACKEND")) {
+        qputenv("QT_OPENGL", "angle");
+        qputenv("QT_ANGLE_PLATFORM", "d3d11");   // 显式 D3D11, 避免落到不稳定的 GL-on-ANGLE
+    }
+
     QGuiApplication app(argc, argv);
     app.setApplicationName(QStringLiteral("iCloudMon"));
     app.setApplicationDisplayName(QStringLiteral("iCloud 状态监控"));

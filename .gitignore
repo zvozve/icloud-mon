@@ -1,2 +1,5 @@
 build
 build32
+# 打包产物(Enigma VB 绿色单文件版 + .evb 工程)。体积大且可由
+# packaging/gen_evb.py + build.bat 重新生成, 不应进版本库。
+dist

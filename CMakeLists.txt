@@ -62,6 +62,32 @@ target_include_directories(spdlog_header_only INTERFACE
 target_compile_definitions(spdlog_header_only INTERFACE SPDLOG_HEADER_ONLY)
 
 # ======================================================================
+#  exe 的 PE 资源(图标 + 版本信息)
+#
+#  Explorer/任务栏/Alt-Tab 的文件图标来自 PE 资源里的 .ico, 与运行时的
+#  setWindowIcon 是两套机制。resources/icloud.ico 由 packaging/make_ico
+#  工具从 icloud.svg 生成(多尺寸 PNG-in-ICO); 若不存在则只给 warning,
+#  不阻断构建(没有图标 exe 仍能运行, 只是文件图标是默认的)。
+#
+#  用模板 + configure_file 注入: rc.exe 不按 .rc 所在目录解析 ICON 相对
+#  路径, 必须给绝对路径才稳, 而绝对路径不该写死在版本库里。
+# ======================================================================
+set(ICON_PATH "${CMAKE_CURRENT_SOURCE_DIR}/resources/icloud.ico")
+if(NOT EXISTS "${ICON_PATH}")
+    message(WARNING "resources/icloud.ico 不存在, exe 将没有文件图标。"
+                    " 可运行 packaging/make_ico 从 icloud.svg 生成。")
+    set(RC_GEN "")
+else()
+    set(RC_TEMPLATE "${CMAKE_CURRENT_SOURCE_DIR}/resources/app.rc.in")
+    set(RC_GEN "${CMAKE_CURRENT_BINARY_DIR}/iCloudMon_resources.rc")
+    # VERSIONINFO 要逐段数字, 从 project(VERSION) 拆出来
+    set(VER_MAJOR ${PROJECT_VERSION_MAJOR})
+    set(VER_MINOR ${PROJECT_VERSION_MINOR})
+    set(VER_PATCH ${PROJECT_VERSION_PATCH})
+    configure_file("${RC_TEMPLATE}" "${RC_GEN}" @ONLY)
+endif()
+
+# ======================================================================
 #  可执行目标
 # ======================================================================
 add_executable(iCloudMon WIN32
@@ -86,6 +112,11 @@ add_executable(iCloudMon WIN32
     # 资源: 由 AUTORCC 编译, 并按 qrc 里引用的文件建立依赖
     resources/icloudmon.qrc
 )
+
+# 把生成的 .rc(图标+版本)加入 target, 嵌进 exe 的 PE 资源
+if(RC_GEN)
+    target_sources(iCloudMon PRIVATE "${RC_GEN}")
+endif()
 
 target_include_directories(iCloudMon PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/inc

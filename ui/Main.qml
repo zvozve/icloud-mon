@@ -30,8 +30,11 @@ ApplicationWindow {
     minimumWidth: 860
     minimumHeight: 620
     visible: true
-    title: Bridge.stateName === "未知" ? "iCloud 状态监控"
-                                       : "iCloud 状态监控 - " + Bridge.stateName
+    // 标题栏带版本号: 排障时一眼确认跑的是哪个 build。
+    // AppVersion 由 main.cpp 注入(= CMake project VERSION)。
+    title: (Bridge.stateName === "未知"
+            ? "iCloud 状态监控 v" + AppVersion
+            : "iCloud 状态监控 v" + AppVersion + " - " + Bridge.stateName)
     color: Theme.bgRoot
 
     // 导航栏是否展开(仅图标 <-> 图标+文字)
