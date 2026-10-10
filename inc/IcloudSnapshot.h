@@ -62,6 +62,12 @@ struct PendingItem
     // 这里用 item_restore_path(相对同步根)拼出绝对路径。该文件可能还没落到
     // 本地(所以是"尽力"), openItemLocation() 对不存在的路径会优雅降级。
     QString path;
+    // ★ 文件在磁盘上已不存在 = **孤立记录**: iCloud 的 server_items.item_state
+    //   还挂着"待处理", 但文件已被用户删除, 且传输队列里并没有它
+    //   (实测 need_upload/download/delete 全是 0)。这种项不是真的"在排队",
+    //   只是状态没清干净。界面上必须和真待处理项区分开, 否则用户会以为
+    //   同步卡住、反复去点删除/重启。全量表只有几十项, 逐个 stat 不贵。
+    bool    missing = false;
 };
 
 // ── 本地项未提交变更 (local_items 有 diff / syncup 非 0) ──────────

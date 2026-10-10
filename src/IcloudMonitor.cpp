@@ -427,6 +427,9 @@ bool IcloudMonitor::readSnapshot(Snapshot &out, const QString &dbPath,
                     it.path = QDir::cleanPath(
                         QDir::fromNativeSeparators(paths::driveRoot()
                             + QLatin1Char('/') + rel));
+                    // 文件已不在磁盘上 => 孤立记录(状态没清干净), 不是真在排队。
+                    // 逐个 stat: 全表 LIMIT 20, 开销可忽略。
+                    it.missing = !QFileInfo::exists(it.path);
                 }
                 out.pendingItems.append(it);
             }

@@ -143,8 +143,12 @@ Item {
                         Label {
                             // "仅云端"必须和"待处理"分开说清: 那只是本地没有
                             // 实体(iCloud 按需下载), 属正常状态, 不是待办。
-                            text: Bridge.pendingRealCount + " 待处理 + "
-                                  + Bridge.localPendings.count + " 本地未提交"
+                            // 孤立记录(文件已删、状态未清)也单独报, 它不占队列。
+                            text: Bridge.pendingRealCount + " 待处理"
+                                  + (Bridge.pendingOrphanCount > 0
+                                     ? " + " + Bridge.pendingOrphanCount + " 孤立"
+                                     : "")
+                                  + " + " + Bridge.localPendings.count + " 本地未提交"
                             color: Bridge.pendingRealCount > 0 ? Theme.warn
                                                                : Theme.textLo
                             font.pixelSize: Theme.fsTiny
@@ -240,6 +244,7 @@ Item {
                             required property string sizeText
                             required property bool isDir
                             required property string path
+                            required property bool missing
                             // delegate 声明了 required property 之后, index
                             // 不再自动注入, 必须自己声明
                             required property int index
@@ -248,6 +253,8 @@ Item {
                             height: 24
                             color: piMouse.containsMouse ? Theme.bgHover
                                 : (index % 2 === 0 ? "transparent" : Theme.bgPanel)
+                            // 孤立记录(文件已删)整体压暗: 它不是真在排队
+                            opacity: piRow.missing ? 0.55 : 1.0
 
                             RowLayout {
                                 anchors.fill: parent
@@ -265,10 +272,18 @@ Item {
                                 }
                                 Label {
                                     text: piRow.name
-                                    color: Theme.textMid
+                                    color: piRow.missing ? Theme.textLo
+                                                          : Theme.textMid
                                     font.pixelSize: Theme.fsSmall
                                     elide: Text.ElideMiddle
                                     Layout.fillWidth: true
+                                }
+                                // 孤立记录明确标注, 免得以为同步卡住
+                                Label {
+                                    visible: piRow.missing
+                                    text: "文件已删除"
+                                    color: Theme.textLo
+                                    font.pixelSize: Theme.fsTiny
                                 }
                                 Label {
                                     text: piRow.sizeText
@@ -288,10 +303,14 @@ Item {
                             }
 
                             ToolTip.visible: piMouse.containsMouse
-                            ToolTip.text: piRow.path !== ""
-                                          ? (piRow.name + "\n" + piRow.path
-                                             + "\n(点击定位)")
-                                          : (piRow.name + "\n(无路径, 无法定位)")
+                            ToolTip.text: piRow.missing
+                                          ? (piRow.name
+                                             + "\n文件已删除, iCloud 状态未清理干净"
+                                             + "\n不占传输队列, 可忽略")
+                                          : (piRow.path !== ""
+                                             ? (piRow.name + "\n" + piRow.path
+                                                + "\n(点击定位)")
+                                             : (piRow.name + "\n(无路径, 无法定位)"))
                             ToolTip.delay: 400
                         }
                     }

@@ -36,6 +36,7 @@ public:
         IsDirRole,
         SizeTextRole,
         PathRole,
+        MissingRole,
     };
 
     explicit PendingModel(QObject *parent = nullptr)
@@ -65,6 +66,7 @@ public:
         case IsDirRole:    return it.isDir;
         case SizeTextRole: return humanSize(it.bytes);
         case PathRole:     return it.path;
+        case MissingRole:  return it.missing;
         }
         return {};
     }
@@ -77,6 +79,7 @@ public:
             { IsDirRole,    "isDir" },
             { SizeTextRole, "sizeText" },
             { PathRole,     "path" },
+            { MissingRole,  "missing" },
         };
     }
 
@@ -269,6 +272,8 @@ class Bridge : public QObject
     Q_PROPERTY(int cloudOnlyCount READ cloudOnlyCount NOTIFY snapshotChanged)
     // 真正的待处理项数(有本地实体且状态非 0)
     Q_PROPERTY(int pendingRealCount READ pendingRealCount NOTIFY snapshotChanged)
+    // 文件已删但状态未清的孤立记录数(不占队列, 仅提示)
+    Q_PROPERTY(int pendingOrphanCount READ pendingOrphanCount NOTIFY snapshotChanged)
 
     // ── iCloud 进程 ──
     Q_PROPERTY(bool    icloudRunning READ icloudRunning NOTIFY icloudStateChanged)
@@ -408,9 +413,26 @@ public:
     QString lastError() const;
     QString rankText() const;
     int     cloudOnlyCount() const { return m_snap.cloudOnlyCount; }
+    // 真·待处理项数: 只算文件确实还在磁盘上的。文件已被删、但 iCloud 状态
+    // 没清干净的(孤立记录)不计入 —— 它们并不占传输队列(need_* 全是 0),
+    // 计入 —— 它们并不占传输队列(need_* 全是 0),
+    // 计入只会让人误以为同步卡住。
     int     pendingRealCount() const
     {
-        return m_snap.pendingItems.size() + m_snap.pendingDirCount;
+        int n = m_snap.pendingDirCount;
+        for (const PendingItem &it : m_snap.pendingItems)
+            if (!it.missing)
+                ++n;
+        return n;
+    }
+    // 孤立记录数(文件已删、状态未清), 界面单独标注, 不算待处理
+    int     pendingOrphanCount() const
+    {
+        int n = 0;
+        for (const PendingItem &it : m_snap.pendingItems)
+            if (it.missing)
+                ++n;
+        return n;
     }
 
     bool    icloudRunning() const { return m_icloudRunning; }
