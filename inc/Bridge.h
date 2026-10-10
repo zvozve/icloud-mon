@@ -331,6 +331,11 @@ public:
     //   目录, 让用户看到上下文并决定是否恢复; 提示语也据实说明"已删除"。
     Q_INVOKABLE void openTrashLocation(const QString &originalPath);
 
+    // 用系统默认浏览器打开一个 URL(设置页的仓库链接等)。
+    // 走 QDesktopServices 而不是 QProcess: 后者要区分 http/浏览器命令行, 且
+    // 在中文系统上易因编码起不来。
+    Q_INVOKABLE void openUrl(const QString &url);
+
     // ── 日志 ──
     Q_PROPERTY(QString logDir READ logDir CONSTANT)
     Q_PROPERTY(QString logFile READ logFile NOTIFY logChanged)

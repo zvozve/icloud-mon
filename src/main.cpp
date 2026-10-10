@@ -16,6 +16,8 @@
 #include <QHash>
 #include <QIcon>
 #include <QImage>
+#include <QLocalServer>
+#include <QLocalSocket>
 #include <QOpenGLContext>
 #include <QOpenGLFunctions>
 #include <QPainter>
@@ -435,6 +437,43 @@ int main(int argc, char *argv[])
     // Qt 消息转发必须在 log::init 之后, 否则前面的日志无处可去
     routeQtMessagesToLog();
 
+    // ══════════════════════════════════════════════════════════════
+    //  单实例模式
+    //
+    //  没有它会怎样: 用户(尤其绿色单文件版)再双击一次就多开一个进程 →
+    //  多个窗口、多个托盘图标、多份数据库轮询/复制, 纯属浪费还互相干扰。
+    //
+    //  经典 QLocalServer/QLocalSocket 方案(跨平台, 无需互斥体):
+    //    1) 先尝试连接一个命名本地服务。连得上 => 已有实例在跑 => 发一条
+    //       "show" 指令后**立刻退出**, 根本不建窗口(快);
+    //    2) 连不上 => 自己就是首个实例, 清掉可能残留的失效 socket 后起服务;
+    //    3) 之后任何实例连进来, 都把已有窗口 show/raise/activate 到前台,
+    //       用户感知就是"双击了一下窗口就出来了"。
+    //
+    //  socket 名字带用户名: 同一台机器上多个用户各跑一份互不干扰。
+    const QString sockName =
+        QStringLiteral("zvozve-iCloudMon-") + qEnvironmentVariable("USERNAME");
+    QLocalSocket probe;
+    probe.connectToServer(sockName);
+    if (probe.waitForConnected(300)) {
+        probe.write("show");
+        probe.flush();
+        probe.waitForBytesWritten(300);
+        icloud::log::info(QStringLiteral(
+            "[RUN] 检测到已有实例运行, 已请求激活它并退出本次启动"));
+        icloud::log::shutdown();
+        return 0;                    // 已有实例负责显示, 本进程不建窗口
+    }
+    // 上次崩溃/被强杀会留下失效 socket, 不清掉 listen 会 AddressInUse 失败
+    QLocalServer::removeServer(sockName);
+    auto *instanceServer = new QLocalServer(&app);
+    if (!instanceServer->listen(sockName)) {
+        // listen 失败不至于致命(退化成可多开), 只记一条便于事后判断
+        icloud::log::warn(QStringLiteral("[RUN] 单实例服务监听失败(%1), "
+                                          "可能允许重复运行")
+                              .arg(int(instanceServer->serverError())));
+    }
+
     // 窗口图标 = 任务栏 / Alt-Tab 上显示的图标。
     // 放在 log::init 之后: appIcon() 渲染失败时要能写进日志文件。
     // 注意: QML 侧不再单独设 ApplicationWindow.icon —— QGuiApplication 这一处
@@ -491,6 +530,28 @@ int main(int argc, char *argv[])
 
     // 图形后端信息: 只有它出现后才能确定是不是软件渲染
     logGraphicsBackend(engine);
+
+    // 单实例: 后续任何实例连进来, 把这个已存在的窗口调到前台。
+    // 捕获窗口裸指针(由 engine 拥有, 活到app.exec() 返回), 安全。
+    {
+        auto *win = engine.rootObjects().isEmpty()
+                        ? nullptr
+                        : qobject_cast<QQuickWindow *>(
+                              engine.rootObjects().constFirst());
+        QObject::connect(instanceServer, &QLocalServer::newConnection, &app,
+                         [win, instanceServer]() {
+            while (instanceServer->hasPendingConnections()) {
+                QLocalSocket *s = instanceServer->nextPendingConnection();
+                s->readAll();          // 读掉"show" 指令, 内容不重要
+                s->deleteLater();
+            }
+            if (win) {
+                win->show();
+                win->raise();
+                win->requestActivate();
+            }
+        });
+    }
 
     // 开发自检用的截图钩子, 不设 ICLOUDMON_SHOT 时不做任何事
     setupScreenshotHook(engine, app);

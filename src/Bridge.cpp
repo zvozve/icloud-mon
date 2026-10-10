@@ -2,10 +2,12 @@
 
 #include <QDateTime>
 #include <QElapsedTimer>
+#include <QDesktopServices>
 #include <QDir>
 #include <QFileInfo>
 #include <QProcess>
 #include <QSettings>
+#include <QUrl>
 
 #include "IcloudPaths.h"
 #include "Log.h"
@@ -255,6 +257,20 @@ void Bridge::openTrashLocation(const QString &originalPath)
                     QStringLiteral("失败: %1").arg(file));
     emit notify(QStringLiteral("error"),
                 QStringLiteral("找不到该文件原来的目录: %1").arg(file));
+}
+
+// 用系统默认浏览器打开 URL(仓库链接)。
+void Bridge::openUrl(const QString &url)
+{
+    const QUrl u = QUrl::fromUserInput(url);   // 容错: 没写 scheme 也能识别
+    if (!u.isValid() || u.scheme().isEmpty()) {
+        log::userAction(QStringLiteral("打开链接"),
+                        QStringLiteral("失败: URL 无效 %1").arg(url));
+        emit notify(QStringLiteral("error"), QStringLiteral("链接无效"));
+        return;
+    }
+    log::userAction(QStringLiteral("打开链接"), u.toString());
+    QDesktopServices::openUrl(u);
 }
 
 void Bridge::openLogDir()

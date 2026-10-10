@@ -583,6 +583,51 @@ Item {
                 }
             }
 
+            // ══════════════════════════════════════════════════
+            //  项目仓库 (点击用默认浏览器打开)
+            // ══════════════════════════════════════════════════
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.preferredHeight: repoRow.implicitHeight + 12
+                color: Theme.bgInput
+                radius: 3
+                border.color: repoMouse.containsMouse ? Theme.info : Theme.border
+                border.width: 1
+                Behavior on border.color { ColorAnimation { duration: 120 } }
+
+                RowLayout {
+                    id: repoRow
+                    anchors.fill: parent
+                    anchors.margins: 6
+                    spacing: Theme.sp
+
+                    Label {
+                        text: "项目仓库"
+                        color: Theme.textLo
+                        font.pixelSize: Theme.fsTiny
+                    }
+                    Label {
+                        id: repoLink
+                        // 仓库地址单点来源, 换仓库改这一处即可
+                        readonly property string url: "https://github.com/zvozve/icloud-mon"
+                        text: "github.com/zvozve/icloud-mon"
+                        color: repoMouse.containsMouse ? Theme.infoHi : Theme.info
+                        font.pixelSize: Theme.fsTiny
+                        font.underline: repoMouse.containsMouse
+                        Layout.fillWidth: true
+                        elide: Text.ElideRight
+                    }
+                }
+
+                MouseArea {
+                    id: repoMouse
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: Bridge.openUrl(repoLink.url)
+                }
+            }
+
             Item { Layout.preferredHeight: Theme.spL }
         }
 
