@@ -587,36 +587,45 @@ Item {
             //  项目仓库 (点击用默认浏览器打开)
             // ══════════════════════════════════════════════════
             Rectangle {
+                id: repoBox
                 Layout.fillWidth: true
-                Layout.preferredHeight: repoRow.implicitHeight + 12
+                // ★ 固定高度, 不用 repoRow.implicitHeight 推导。
+                //   之前写成 anchors.fill 的 RowLayout + 父矩形高度依赖其
+                //   implicitHeight, 形成循环: 父.height ← row.implicitHeight
+                //   ← (row anchors.fill 父) ← 父.height。点击开关触发重算时
+                //   Qt 报 "Binding loop detected for contentHeight",
+                //   表现为界面出现随机彩色线条(渲染撕裂)。这里断开依赖。
+                Layout.preferredHeight: 28
                 color: Theme.bgInput
                 radius: 3
                 border.color: repoMouse.containsMouse ? Theme.info : Theme.border
                 border.width: 1
                 Behavior on border.color { ColorAnimation { duration: 120 } }
 
-                RowLayout {
-                    id: repoRow
-                    anchors.fill: parent
-                    anchors.margins: 6
-                    spacing: Theme.sp
+                Label {
+                    id: repoTitle
+                    anchors.left: parent.left
+                    anchors.leftMargin: 6
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: "项目仓库"
+                    color: Theme.textLo
+                    font.pixelSize: Theme.fsTiny
+                }
 
-                    Label {
-                        text: "项目仓库"
-                        color: Theme.textLo
-                        font.pixelSize: Theme.fsTiny
-                    }
-                    Label {
-                        id: repoLink
-                        // 仓库地址单点来源, 换仓库改这一处即可
-                        readonly property string url: "https://github.com/zvozve/icloud-mon"
-                        text: "github.com/zvozve/icloud-mon"
-                        color: repoMouse.containsMouse ? Theme.infoHi : Theme.info
-                        font.pixelSize: Theme.fsTiny
-                        font.underline: repoMouse.containsMouse
-                        Layout.fillWidth: true
-                        elide: Text.ElideRight
-                    }
+                Label {
+                    id: repoLink
+                    // 仓库地址单点来源, 换仓库改这一处即可
+                    readonly property string url: "https://github.com/zvozve/icloud-mon"
+                    anchors.left: repoTitle.right
+                    anchors.leftMargin: Theme.sp
+                    anchors.right: parent.right
+                    anchors.rightMargin: 6
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: url
+                    color: repoMouse.containsMouse ? Theme.infoHi : Theme.info
+                    font.pixelSize: Theme.fsTiny
+                    font.underline: repoMouse.containsMouse
+                    elide: Text.ElideRight
                 }
 
                 MouseArea {

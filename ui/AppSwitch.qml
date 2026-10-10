@@ -43,12 +43,15 @@ Switch {
     indicator: Rectangle {
         id: track
 
+        // ★ 这里**不能**给 indicator 加 anchors 或显式 width/height。
+        //   QQuickControl 自己会定位和决定 indicator 的尺寸(见 Fusion 的
+        //   Switch.qml: positionIndicator 会给 indicator 设 x/y)。额外挂
+        //   anchors.centerIn 或 width/height 会与控件的定位逻辑打架, 布局
+        //   重算时可能算出非法几何, 表现为界面出现随机彩色线条(渲染垃圾)。
+        //   正确做法: 只给 implicitWidth/Height(尺寸)+ 外观, 位置交给控件。
+        //   (控件无文字, implicit 尺寸=开关尺寸, 正好铺满。)
         implicitWidth: Theme.switchW
         implicitHeight: Theme.switchH
-        width: Theme.switchW
-        height: Theme.switchH
-        anchors.horizontalCenter: parent.horizontalCenter
-        anchors.verticalCenter: parent.verticalCenter
 
         radius: height / 2
         color: control.checked ? Theme.ok : Theme.bgInput
