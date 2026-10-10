@@ -157,11 +157,13 @@ Item {
             // ── 明细 ──
             Rectangle {
                 Layout.fillWidth: true
-                // 同"启用状态来源"那块: 不用 detailCol.implicitHeight 推导
-                // 高度(会与子项的 width 依赖构成 preferredHeight 绑定循环),
-                // 改为按明细行数直接算。行高 22 + 内边距, 上限 12 行。
-                readonly property int rows: page.cat ? Math.min(12, page.cat.details.length) : 0
-                Layout.preferredHeight: rows * 22 + Theme.sp * 2
+                // 高度交给内部 ColumnLayout 自撑: detailCol.implicitHeight 由真实的
+                // 子项高度累加(含 spacing), 永远准确。
+                // 用它的 implicitHeight **不会**成环 —— 前提是父矩形本身
+                // 不设 height, 高度由外层 Layout 分配。写成
+                // `Rectangle.height ← detailCol.implicitHeight ←
+                //  detailCol.width ← Rectangle.width` 才成环。
+                Layout.preferredHeight: detailCol.implicitHeight + Theme.sp * 2
                 color: Theme.bgPanel
                 radius: Theme.radius
                 border.color: Theme.border
@@ -169,12 +171,19 @@ Item {
 
                 ColumnLayout {
                     id: detailCol
-                    // ★ 关键: 只用父宽, 高度完全不设。
-                    //   `height: implicitHeight` 是自引用(implicitHeight 由
-                    //   自己的子项算出), 会触发绑定循环;
-                    //   `anchors.fill: parent` 会与父矩形高度成环。两者都不能写。
+                    // ★ 关键: 只用父宽; 高度不设(设 height: implicitHeight
+                    //   是自引用, 会绑定循环)。
+                    //   `anchors.fill: parent` 也不能用(与父高度成环)。
+                    //
+                    // ★★ 但**必须有垂直定位**! 之前只写了
+                    //   anchors.horizontalCenter, 于是 detailCol 的 y 默认为 0,
+                    //   内容从父矩形上沿开始画 —— 即使父矩形高度算对了,
+                    //   第一行也会紧贴/压在上边框上(像素实测上边距仅 3px,
+                    //   表现为"文字贴顶")。
+                    //   水平居中 + 垂直居中: 上下各留 (父高-内容高)/2。
                     width: parent.width - Theme.sp * 2
                     anchors.horizontalCenter: parent.horizontalCenter
+                    anchors.verticalCenter: parent.verticalCenter
                     spacing: 6
 
                     Repeater {
@@ -208,17 +217,20 @@ Item {
             // ── 启用状态来源 ──
             Rectangle {
                 Layout.fillWidth: true
-                // 不再用 `srcCol.implicitHeight` 推导高度: srcCol 是本矩形的
-                // 子项, 它的 implicitHeight 由自己的子项算出, 而子项又需要
-                // 本矩形的宽度 —— 构成
-                //     Rectangle.preferredHeight ← srcCol.implicitHeight
-                //                                        ← srcCol.width ← Rectangle.width
-                // Qt 判定为绑定循环(实测报 `CategoryPage.qml:186 Binding loop
-                // detected for property "preferredHeight"`)。
-                // 改法: 矩形只声明 fillWidth, 高度用 ColumnLayout 的内容
-                // 直接算 —— 不再引用子项的 implicitHeight, 环就断了。
-                Layout.preferredHeight: srcRows * 20 + 12
-                readonly property int srcRows: 3 + (page.cat && page.cat.userSet === true ? 0 : 1)
+                // ★ 这块内部有 wrapMode: WordWrap 的 Label(第 2、3 行), 高度随
+                //   文字换行数变化 —— 任何"行数 × 固定行高"的公式都算不准
+                //   (之前写 srcRows * 20 + 12 就因为漏算 spacing 而偏小)。
+                //   而且"启用状态来源"是固定标题, 另两行长度不定。
+                //
+                // 正确做法: 直接用内部 ColumnLayout 的 implicitHeight ——
+                //   它由**真实子项**算出(Label 自己知道换了几行), 永远准。
+                //   这里不会构成绑定循环: 前提是**父矩形不要设 height**,
+                //   高度由 Layout 按 preferredHeight 分配给子项即可。
+                //   (之前成环的写法是父矩形反过来取子项 implicitHeight:
+                //    Rectangle.preferredHeight ← srcCol.implicitHeight
+                //        ← srcCol.width ← Rectangle.width ← 同一矩形)
+                //   现在方向相反 —— 子项报告需求, 父不给它回压。
+                Layout.preferredHeight: srcCol.implicitHeight + Theme.sp * 2
                 color: Theme.bgInput
                 radius: Theme.radius
                 border.color: Theme.border
@@ -226,10 +238,12 @@ Item {
 
                 ColumnLayout {
                     id: srcCol
-                    // ★ 关键: 不用 anchors.fill(会与父高度成环), 也不用
-                    //   height: implicitHeight(自引用)。只用父宽, 高度不设。
+                    // 同 detailCol: 只用父宽 + 垂直居中。
+                    // ★ 必须有垂直定位 —— 只写 horizontalCenter 时 y 默认 0,
+                    //   内容会压在上边框上(实测上边距仅 3px)。
                     width: parent.width - Theme.sp * 2
                     anchors.horizontalCenter: parent.horizontalCenter
+                    anchors.verticalCenter: parent.verticalCenter
                     spacing: 4
 
                     Label {

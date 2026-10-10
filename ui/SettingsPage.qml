@@ -574,6 +574,10 @@ Item {
                     id: pathCol
                     width: parent.width - 12
                     anchors.horizontalCenter: parent.horizontalCenter
+                    // ★ 同 CategoryPage.detailCol: 只写 horizontalCenter 时
+                    //   y 默认 0, 内容会压在上边框上(实测上边距仅 3px)。
+                    //   必须补垂直居中, 上下才都有留白。
+                    anchors.verticalCenter: parent.verticalCenter
                     spacing: 2
 
                     Label {
