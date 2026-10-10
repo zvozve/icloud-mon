@@ -296,6 +296,11 @@ ApplicationWindow {
                                            : Theme.err
                         font.pixelSize: Theme.fsTitle
                         font.bold: true
+                        // 与 StatusCard 同理: 状态名是变长文本(最长"双向传输"),
+                        // 顶栏右侧是"重启/打开目录"操作按钮。给中间这段设
+                        // 收缩上限, 窗口变窄时被截的是状态名而不是按钮。
+                        Layout.maximumWidth: 140
+                        elide: Text.ElideRight
                     }
 
                     Label {

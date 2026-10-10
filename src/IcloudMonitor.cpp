@@ -44,11 +44,32 @@ QString Snapshot::stateName() const
         return QStringLiteral("暂存中");
     if (q.needDelCount > 0)
         return QStringLiteral("删除中");
-    if (!localPendings.isEmpty())
-        return QStringLiteral("上传处理中");
-    if (!activeZones.isEmpty())
+
+    // ── 队列空闲: 到底同步完没有, 用**同步游标**判定 ──
+    //
+    // ★ 这里原来还有两条"非队列"的忙碌判据, 会让状态永远停在"处理中":
+    //     1) !localPendings.isEmpty() -> "上传处理中"
+    //     2) !activeZones.isEmpty()   -> "同步中"
+    //   实测两条都不成立:
+    //     - localPendings 取 local_items 里 item_localsyncupstate<>0 /
+    //       item_in_flight_diffs<>0 / item_local_diffs<>0 的行。这类行
+    //       只要存在就长期命中, 即使 needs_upload_count=0、一个字节都没在传。
+    //       (实测某次同步早已完成, 仍有 3 个 .md/.js 长期挂着, 状态却一直
+    //        显示"上传处理中"。)
+    //     - activeZones 取 server_zones.currentrequestid<>''。而
+    //       com.apple.CloudDocs / iCloud.md.obsidian 的 currentrequestid
+    //       是 iCloud **常驻注册**的请求 id, 常态非空, 同步完成后也不清 ——
+    //       所以"同步中"是常态, 等于这个状态从来没提供有效信息。
+    //
+    //   "忙"只认队列(真在传东西)。队列空了就用游标判是否追平:
+    //   client==server 且无待应用 rank 才是真正的"同步完成"。
+    if (!inSync)
         return QStringLiteral("同步中");
-    return QStringLiteral("空闲");
+    // 游标已追平但本地还有改动没被 iCloud 接收 —— 这是"待提交",
+    // 不是"正在处理"。措辞上区分开, 免得让人以为还在传。
+    if (!localPendings.isEmpty())
+        return QStringLiteral("待提交");
+    return QStringLiteral("已同步");
 }
 
 QString Snapshot::stateDetail() const
@@ -78,11 +99,15 @@ QString Snapshot::stateDetail() const
         return QStringLiteral("%1 个下载暂存").arg(q.dlUnstaged);
     if (q.needDelCount > 0)
         return QStringLiteral("%1 个待删除").arg(q.needDelCount);
+    // 与 stateName 同一套判据: 队列空 -> 看游标, 不看 activeZones
+    // (activeZones 常态非空, 拿它当"还在忙"会让这句永远显示
+    //  "2 个 zone 有活跃请求", 同步早就完成了也照报。)
+    if (!inSync)
+        return QStringLiteral("正在同步 · 待应用 %1 项").arg(unapplied);
     if (!localPendings.isEmpty())
-        return QStringLiteral("%1 个本地项有未提交变更").arg(localPendings.size());
-    if (!activeZones.isEmpty())
-        return QStringLiteral("%1 个 zone 有活跃请求").arg(activeZones.size());
-    return QStringLiteral("无待处理任务");
+        return QStringLiteral("%1 个本地项待提交")
+            .arg(localPendings.size());
+    return QStringLiteral("全部已同步");
 }
 
 bool Snapshot::isBusy() const

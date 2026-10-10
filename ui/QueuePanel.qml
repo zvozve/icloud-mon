@@ -24,6 +24,17 @@ Rectangle {
     // 叫"待处理"会让人看不出是删除。
     property string countLabel: "待处理"
 
+    // 删除队列没有"进度"概念。
+    //
+    // 原来它复用 done/total 画进度条, 而删除的 done = 回收站项数、
+    // total = 回收站 + 待删除。结果只要回收站非空就恒等于 100%,
+    // 于是一根**红色满格进度条**长期挂在界面上(截图实测 3/3)。
+    // 红色 + 满格 = 视觉上像"出错/告警", 但真实语义只是
+    // "回收站里有 3 项, 没有待删除" —— 这是正常状态。
+    // 所以删除队列改用 noProgress: 不画进度条, 标题右侧直接显示
+    // "回收站 N 项", 下面的明细行照旧显示"待删除 N 个"。
+    property bool noProgress: false
+
     // 进度比例, total 为 0 时视为 100% (无任务即完成)
     readonly property real ratio: total > 0
         ? Math.min(1.0, done / total)
@@ -67,9 +78,11 @@ Rectangle {
 
             // 空闲时不显示 0/0 这种无意义数字
             Label {
-                text: root.busy || root.total > 0
-                      ? (root.done + " / " + root.total)
-                      : "空闲"
+                text: root.noProgress
+                      ? (root.total > 0 ? (root.total + " 项") : "无记录")
+                      : (root.busy || root.total > 0
+                         ? (root.done + " / " + root.total)
+                         : "空闲")
                 color: root.busy ? root.accent : Theme.textLo
                 font.pixelSize: Theme.fsTitle
                 font.bold: true
@@ -78,11 +91,13 @@ Rectangle {
         }
 
         // ── 进度条 ──
+        // noProgress(删除队列)时整条隐藏, 不占高度。
         Rectangle {
             Layout.fillWidth: true
             height: 8
             radius: 4
             color: Theme.bgInput
+            visible: !root.noProgress
 
             Rectangle {
                 width: parent.width * root.ratio
@@ -96,6 +111,14 @@ Rectangle {
                 }
                 Behavior on opacity { NumberAnimation { duration: 240 } }
             }
+        }
+
+        // 进度条隐藏时留同高的空占位, 否则三个并排面板里
+        // 删除面板的下方内容会比另外两个高一截, 底边对不齐。
+        Item {
+            Layout.fillWidth: true
+            height: 8
+            visible: root.noProgress
         }
 
         Item { Layout.fillHeight: true; Layout.preferredHeight: 4 }

@@ -238,8 +238,17 @@ CategoryStatus IcloudCategories::readDrive(const Snapshot &snap)
                        QStringLiteral("%1 项（可恢复）").arg(snap.trashCount) });
     c.details.append({ QStringLiteral("仅云端"),
                        QStringLiteral("%1 项（按需下载）").arg(snap.cloudOnlyCount) });
-    c.details.append({ QStringLiteral("活跃 zone"),
-                       QStringLiteral("%1 个").arg(snap.activeZones.size()) });
+    // 这一项原来叫"活跃 zone", 显示 server_zones 里 currentrequestid<>' 的
+    // 数量。实测那**不是活跃信号** —— com.apple.CloudDocs 与
+    // iCloud.md.obsidian 的 currentrequestid 是 iCloud 常驻注册的请求 id,
+    // 常态非空、同步完成后也不清, 所以这个数字长期是 2, 毫无信息量,
+    // 还会让人以为"一直有 2 个任务在跑"。
+    // 换成真正反映同步进度的游标: client/server 是否追平 + 待应用条数。
+    c.details.append({ QStringLiteral("同步游标"),
+                       QStringLiteral("%1（待应用 %2 项）")
+                           .arg(snap.inSync ? QStringLiteral("已追平")
+                                            : QStringLiteral("未追平"))
+                           .arg(snap.unapplied) });
     c.details.append({ QStringLiteral("后台任务"), c.autoWhy });
 
     c.note = QStringLiteral("云盘的全部计数都来自 iCloudDrive.db, 是真实值。");

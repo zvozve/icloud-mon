@@ -38,12 +38,18 @@ QtObject {
     function stateColor(name) {
         switch (name) {
         case "空闲":            return idle
+        // "已同步"是**正常且已完成**的状态, 用中性色而非绿色。
+        // 绿色(Theme.ok)在这个界面里已经被"iCloud 运行中"占用了,
+        // 状态点再用同一色会让人误以为是另一层语义。
+        case "已同步":          return idle
+        // 队列空闲但本地仍有未提交项: 是"还没提交上去", 不是"正在处理"。
+        // 用中性提示色, 别用 warn(橙) —— 橙=警告, 会让人以为出问题了。
+        case "待提交":          return info
         case "同步中":          return info
         case "上传中":          return up
         case "下载中":          return down
         case "双向传输":        return "#a371f7"
         case "暂存中":          return warn
-        case "上传处理中":      return warn
         case "删除中":          return err
         case "未知":            return err
         default:                return idle

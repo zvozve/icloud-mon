@@ -94,6 +94,12 @@ Item {
                 // 删除: 待删除 = needs_delete_doc_count;
                 // "已完成"侧用回收站项数对应(表里没有 deleted_count)。
                 // 删除没有字节数概念, pendingSize 传空串 -> 那一栏自动隐藏。
+                //
+                // noProgress: 删除队列没有"进度"语义。原来 done/total 画出的
+                // 进度条只要回收站非空就恒为满格, 加上 accent 是红色,
+                // 于是一根红色满条长期挂在界面上, 看着像告警 —— 实际只是
+                // "回收站里有几项、当前没有待删除"。改后标题右侧直接写
+                // "回收站 N 项", 不再画进度条。
                 QueuePanel {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
@@ -104,6 +110,7 @@ Item {
                     pendingCount: Bridge.delCount
                     pendingSize: ""
                     countLabel: "待删除"
+                    noProgress: true
                     extraText: Bridge.delDone > 0
                                 ? ("回收站 " + Bridge.delDone + " 项") : ""
                     busy: Bridge.delBusy

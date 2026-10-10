@@ -367,6 +367,22 @@ void setupScreenshotHook(QQmlApplicationEngine &engine, QGuiApplication &app)
     if (pages.isEmpty())
         pages << QString();
 
+    // ICLOUDMON_SHOT_W / _H: 截图前把窗口改成指定尺寸。
+    //
+    // 为什么需要: 布局类缺陷(控件被裁、长文本把按钮挤出可视区)**只在
+    // 特定宽度下出现**。默认 1100 宽时一切正常, 用户把窗口缩到最小宽度
+    // 才发现问题 —— 没有这个开关就只能靠用户描述, 无法稳定复现与回归验证。
+    // 复现"缩窄后刷新按钮被裁"就是靠它。
+    if (!qEnvironmentVariableIsEmpty("ICLOUDMON_SHOT_W")) {
+        const int w = qEnvironmentVariableIntValue("ICLOUDMON_SHOT_W");
+        const int h = qEnvironmentVariableIntValue("ICLOUDMON_SHOT_H");
+        if (w > 0) {
+            win->resize(w, h > 0 ? h : win->height());
+            // resize 只是请求, 场景图要下一帧才生效, 截图钩子本身有
+            // 2500ms 起始延时, 足够布局稳定。
+        }
+    }
+
     auto *runner = new ShotRunner(win, QString::fromLocal8Bit(path), pages, &app);
     runner->start(2500);  // 给首次渲染与数据采样留时间
 }
