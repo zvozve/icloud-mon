@@ -25,10 +25,28 @@ import QtQuick.Layouts 1.15
 
 ApplicationWindow {
     id: win
-    width: 1100
-    height: 840
-    minimumWidth: 860
-    minimumHeight: 620
+
+    // ★ 窗口尺寸: **默认就等于最小尺寸**(860x620)。
+    //
+    //   原来是 width:1100 / height:840, 而 minimumWidth:860 /
+    //   minimumHeight:620 —— 于是存在一块"最小尺寸到默认尺寸之间"的状态,
+    //   界面上从没为它设计过: 860~1100 宽度下的布局是这几轮修布局时
+    //   反复出问题的地方(按钮被裁/文字贴边/内容溢出), 靠 minimumWidth
+    //   兜底并不等于"在这个尺寸下好看"。
+    //
+    //   既然如此, 默认就取最小尺寸:
+    //     - 小屏/笔记本用户一启动就看到完整布局, 不必手动拉大;
+    //     - 避开那块"没设计过的中间尺寸区间";
+    //     - 默认尺寸 == minimumWidth/Height, 只有用户主动拖大才会有更大布局。
+    //
+    //   用 readonly property 单一来源, 避免 width/minimumWidth 两处
+    //   各写各的以后又走偏。
+    readonly property int defaultW: 860
+    readonly property int defaultH: 620
+    width: defaultW
+    height: defaultH
+    minimumWidth: defaultW
+    minimumHeight: defaultH
     visible: true
     // 标题栏: 应用名 + 版本 + 当前页名。
     // AppVersion 由 main.cpp 注入(= CMake project VERSION)。
