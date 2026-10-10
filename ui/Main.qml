@@ -440,13 +440,17 @@ ApplicationWindow {
 
         RowLayout {
             id: toastRow
-            // ★ 不能用 anchors.fill。toast.height 依赖 toastRow.implicitHeight,
-            //   若 toastRow 又 anchors.fill parent, 就成环:
-            //   toast.height ← toastRow.implicitHeight ← toast.height。
-            //   点开关触发 notify 弹 toast 时这个环被激活, 界面出现彩色撕裂。
-            //   改成: 宽度取父宽(只水平), 高度由自身内容决定, 断开反馈。
+            // ★ 不能用 anchors.fill, 也不能写 `height: implicitHeight`。
+            //   toast.height 依赖 toastRow.implicitHeight, 而
+            //   `height: implicitHeight` 对 ColumnLayout/RowLayout 自身就是
+            //   **自引用**(implicitHeight 正是由自己的子项算出来的) ——
+            //   于是 toast.height ← toastRow.implicitHeight
+            //   ← toastRow.height(自引用) → Qt 判为绑定循环。
+            //   实测报 `QML Flickable: Binding loop detected for
+            //   property "contentHeight"`, 点开关弹 toast 时还会出现彩色撕裂。
+            //   正确写法: 宽度取父宽(只水平), 高度完全不设 ——
+            //   Layout 会自己按内容撑开。
             width: parent.width - Theme.sp * 2
-            height: implicitHeight
             anchors.horizontalCenter: parent.horizontalCenter
             anchors.verticalCenter: parent.verticalCenter
             spacing: 8

@@ -26,7 +26,9 @@ Item {
         //   QML Flickable: Binding loop detected for property "contentHeight".
         // 而且它本来就多余: 内容不足一屏时下面的 ScrollBar policy 自己会判
         // 成 AlwaysOff, 不需要靠撑大 contentHeight 来消除滚动条。
-        contentHeight: col.implicitHeight + Theme.spL * 2
+        // 上下留白必须与 col 的 y 偏移(Theme.spXL)和底部收尾一致,
+        // 否则底部会多出或少掉一段空白。
+        contentHeight: col.implicitHeight + Theme.spXL * 2
         clip: true
         boundsBehavior: Flickable.StopAtBounds
 
@@ -39,8 +41,15 @@ Item {
             id: col
             width: body.width - Theme.spL * 2
             x: Theme.spL
-            y: Theme.spL
-            spacing: Theme.sp
+            // 顶部留白用 spXL(24)。原来用 spL(16), 在纯文字页面上方
+            // 显得很挤 —— 标题几乎贴着顶栏底边(书签/密码/相册页都有这感,
+            // 因为这三页顶部是 Label 而非带边框的面板, 没有边框做视觉分隔,
+            // 16px 看着就像没留白)。24px 才有明确的"内容从下方开始"的感觉。
+            y: Theme.spXL
+            // 模块之间的间距用 spL(16) 而不是 sp(8)。这些面板都有边框,
+            // 8px 间距时相邻两个边框几乎贴在一起, 视觉上分不清是两个模块,
+            // 截图里就出现过"云端状态分布"和"待处理项"糊成一片的感觉。
+            spacing: Theme.spL
 
             // ── 异常横幅 ──
             AlertBanner {
@@ -144,20 +153,24 @@ Item {
                 // ★ 原来写死 360。实测绝大多数时候里面只有 0~2 条
                 //   (正常同步状态就是 0 条), 却恒占 360px —— 页面因此要滚
                 //   很久才看到下面的回收站, 而中间是一大片空白。
-                //   改成按内容算高度:
-                //     表头(约 20) + 本地未提交(最多 6 条 × 26) + 分隔线(1)
-                //     + 云端列表(最多 8 行 × 26, 超过就滚动)
-                //   再用上下限兜住: 太少不低于 110(表头+空态提示),
-                //   太多不超过 340(否则又变成长空白)。中间值即所需高度。
+                //
+                //   这里**必须**手算: 内部云端列表是 ListView + fillHeight,
+                //   需要一个确定高度才能滚动, 不能像 QueuePanel 那样让
+                //   Layout 自撑。所以公式各项要留足余量 —— 上一版按
+                //   "表头20 + 行26 + 空态30" 估算偏小, 实测底部"无待处理项"
+                //   空态文字被挤出面板、与下一个模块贴到一起(重叠)。
+                //   现在每行按 28 算、空态区按 34 算, 并把下限提到 124。
                 readonly property int localRows: Math.min(6, Bridge.localPendings.count)
                 readonly property int cloudRows: Math.min(8, Bridge.pendingItems.count)
-                Layout.preferredHeight: Math.max(110, Math.min(340,
+                readonly property bool showEmpty: Bridge.pendingRealCount === 0
+                                                 && Bridge.localPendings.count === 0
+                Layout.preferredHeight: Math.max(124, Math.min(340,
                                      Theme.sp * 2
-                                     + 20 + 6
-                                     + localRows * 26
-                                     + (localRows > 0 && cloudRows > 0 ? 7 : 0)
-                                     + cloudRows * 26
-                                     + 30))
+                                     + 24 + 8
+                                     + localRows * 28
+                                     + (localRows > 0 && cloudRows > 0 ? 8 : 0)
+                                     + cloudRows * 28
+                                     + (showEmpty ? 34 : 8)))
                 color: Theme.bgPanel
                 radius: Theme.radius
                 border.color: Theme.border
@@ -382,12 +395,13 @@ Item {
             Rectangle {
                 Layout.fillWidth: true
                 // 同待处理项: 原来写死 240, 空回收站时白占一整块。
-                // 按内容算: 表头 + 最多 8 行 × 24(超过滚动) + 空态提示,
-                // 下限 96(表头 + "回收站为空"), 上限 300。
-                Layout.preferredHeight: Math.max(96, Math.min(300,
-                                     Theme.sp * 2 + 20 + 6
-                                     + Math.min(8, Bridge.trashItems.count) * 26
-                                     + 30))
+                // 这里也必须手算(内部 ListView 需要确定高度才能滚),
+                // 各项留足余量, 下限 108 保证"回收站为空"完整显示。
+                readonly property int rows: Math.min(8, Bridge.trashItems.count)
+                Layout.preferredHeight: Math.max(108, Math.min(300,
+                                     Theme.sp * 2 + 24 + 8
+                                     + rows * 28
+                                     + (rows > 0 ? 8 : 34)))
                 color: Theme.bgPanel
                 radius: Theme.radius
                 border.color: Theme.border

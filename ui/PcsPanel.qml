@@ -16,9 +16,14 @@ Rectangle {
 
     // ★ Rectangle 的默认 implicitHeight 是 0, 外层去掉写死的 300 之后,
     //   必须自己提供高度, 否则整个面板会塌成一条线。
-    //   构成: 标题行(约 18) + 每行 34 + 行间距 8×n + 间隔 6 + 底部说明(约 14)
-    //   + 上下边距(sp×2)。这里按 buckets 实际条数算, 内容变了高度跟着变。
-    implicitHeight: Theme.sp * 2 + 18 + buckets.length * (34 + 8) + 6 + 14
+    //
+    //   ★★ 不要手算公式(`sp*2 + 18 + buckets.length*(34+8) + 6 + 14`):
+    //   那是估算值, 与 Qt 实际给子项算出的高度不一致。估算偏小会把内容
+    //   挤出面板(底部说明文字贴边甚至与下一个模块重叠), 字号或主题间距
+    //   一变就再错。实测踩过。
+    //   正确做法: 由内部 ColumnLayout 的 implicitHeight 决定 —— 它是
+    //   真实子项高度累加, 永远准确。
+    implicitHeight: contentCol.implicitHeight + Theme.sp * 2
 
     // 由 C++ Bridge.pcsBuckets 注入: [{pcsState,count,bytes,label}, ...]
     property var buckets: Bridge.pcsBuckets
@@ -52,6 +57,7 @@ Rectangle {
     }
 
     ColumnLayout {
+        id: contentCol
         anchors.fill: parent
         anchors.margins: Theme.sp
         spacing: 8

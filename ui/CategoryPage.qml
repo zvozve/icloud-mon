@@ -38,7 +38,9 @@ Item {
         //   QML Flickable: Binding loop detected for property "contentHeight".
         // 而且它本来就多余: 内容不足一屏时下面的 ScrollBar policy 自己会判
         // 成 AlwaysOff, 不需要靠撑大 contentHeight 来消除滚动条。
-        contentHeight: col.implicitHeight + Theme.spL * 2
+        // 上下留白必须与 col 的 y 偏移(Theme.spXL)和底部收尾一致,
+        // 否则底部会多出或少掉一段空白。
+        contentHeight: col.implicitHeight + Theme.spXL * 2
         clip: true
         boundsBehavior: Flickable.StopAtBounds
 
@@ -51,7 +53,11 @@ Item {
             id: col
             width: body.width - Theme.spL * 2
             x: Theme.spL
-            y: Theme.spL
+            // 顶部留白用 spXL(24)。原来用 spL(16), 在纯文字页面上方
+            // 显得很挤 —— 标题几乎贴着顶栏底边(书签/密码/相册页都有这感,
+            // 因为这三页顶部是 Label 而非带边框的面板, 没有边框做视觉分隔,
+            // 16px 看着就像没留白)。24px 才有明确的"内容从下方开始"的感觉。
+            y: Theme.spXL
             spacing: Theme.sp
 
             // ── 标题行 ──
@@ -122,7 +128,11 @@ Item {
             // ── 明细 ──
             Rectangle {
                 Layout.fillWidth: true
-                Layout.preferredHeight: detailCol.implicitHeight + Theme.sp * 2
+                // 同"启用状态来源"那块: 不用 detailCol.implicitHeight 推导
+                // 高度(会与子项的 width 依赖构成 preferredHeight 绑定循环),
+                // 改为按明细行数直接算。行高 22 + 内边距, 上限 12 行。
+                readonly property int rows: page.cat ? Math.min(12, page.cat.details.length) : 0
+                Layout.preferredHeight: rows * 22 + Theme.sp * 2
                 color: Theme.bgPanel
                 radius: Theme.radius
                 border.color: Theme.border
@@ -130,10 +140,11 @@ Item {
 
                 ColumnLayout {
                     id: detailCol
-                    // 同设置页: 不用 anchors.fill(会与父矩形高度成环),
-                    // 只取父宽, 高度由内容决定。
+                    // ★ 关键: 只用父宽, 高度完全不设。
+                    //   `height: implicitHeight` 是自引用(implicitHeight 由
+                    //   自己的子项算出), 会触发绑定循环;
+                    //   `anchors.fill: parent` 会与父矩形高度成环。两者都不能写。
                     width: parent.width - Theme.sp * 2
-                    height: implicitHeight
                     anchors.horizontalCenter: parent.horizontalCenter
                     spacing: 6
 
@@ -168,7 +179,17 @@ Item {
             // ── 启用状态来源 ──
             Rectangle {
                 Layout.fillWidth: true
-                Layout.preferredHeight: srcCol.implicitHeight + Theme.sp * 2
+                // 不再用 `srcCol.implicitHeight` 推导高度: srcCol 是本矩形的
+                // 子项, 它的 implicitHeight 由自己的子项算出, 而子项又需要
+                // 本矩形的宽度 —— 构成
+                //     Rectangle.preferredHeight ← srcCol.implicitHeight
+                //                                        ← srcCol.width ← Rectangle.width
+                // Qt 判定为绑定循环(实测报 `CategoryPage.qml:186 Binding loop
+                // detected for property "preferredHeight"`)。
+                // 改法: 矩形只声明 fillWidth, 高度用 ColumnLayout 的内容
+                // 直接算 —— 不再引用子项的 implicitHeight, 环就断了。
+                Layout.preferredHeight: srcRows * 20 + 12
+                readonly property int srcRows: 3 + (page.cat && page.cat.userSet === true ? 0 : 1)
                 color: Theme.bgInput
                 radius: Theme.radius
                 border.color: Theme.border
@@ -176,9 +197,9 @@ Item {
 
                 ColumnLayout {
                     id: srcCol
-                    // 同 detailCol: 断开与父矩形高度的循环依赖
+                    // ★ 关键: 不用 anchors.fill(会与父高度成环), 也不用
+                    //   height: implicitHeight(自引用)。只用父宽, 高度不设。
                     width: parent.width - Theme.sp * 2
-                    height: implicitHeight
                     anchors.horizontalCenter: parent.horizontalCenter
                     spacing: 4
 

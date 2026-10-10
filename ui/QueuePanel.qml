@@ -24,11 +24,19 @@ Rectangle {
     // 叫"待处理"会让人看不出是删除。
     property string countLabel: "待处理"
 
-    // ★ Rectangle 默认 implicitHeight 为 0。外层原本写死 200, 去掉之后
-    //   必须自己算高度, 否则三个面板会塌成线。
-    //   构成: 标题行(约 20) + 进度条 8(或隐藏时的同高占位 8)
-    //        + 间隔 4 + 详情行(约 34) + 上下边距(sp×2)
-    implicitHeight: Theme.sp * 2 + 20 + 8 + 4 + 34
+    // ★ Rectangle 默认 implicitHeight 为 0, 外层去掉写死的 200 之后必须
+    //   自己提供高度, 否则三个面板会塌成线。
+    //
+    //   ★★ 不要在这里手算高度公式(例如 `Theme.sp*2 + 20 + 8 + 4 + 34`)——
+    //   那是**估算值**, 与 Qt 实际给子项算出的高度不一致, 估算偏小就会
+    //   把内容挤出面板, 表现为底部"待处理/待传输"文字贴到面板下边缘、
+    //   甚至与下一个模块重叠(实测踩过)。字号/行高/主题间距一变就再错。
+    //
+    //   正确做法: 让内部那个 ColumnLayout 自己的 implicitHeight 决定高度
+    //   —— 它由真实的子项高度累加得来, 永远准确。
+    //   注意 contentCol 不能同时设 height(会与父成环), 只读它的
+    //   implicitHeight。
+    implicitHeight: contentCol.implicitHeight + Theme.sp * 2
 
     // 删除队列没有"进度"概念。
     //
@@ -57,6 +65,7 @@ Rectangle {
     Behavior on edgeColor { ColorAnimation { duration: 240 } }
 
     ColumnLayout {
+        id: contentCol
         anchors.fill: parent
         anchors.margins: Theme.sp
         spacing: 6

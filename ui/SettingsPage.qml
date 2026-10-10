@@ -43,7 +43,9 @@ Item {
         //   QML Flickable: Binding loop detected for property "contentHeight".
         // 而且它本来就多余: 内容不足一屏时下面的 ScrollBar policy 自己会判
         // 成 AlwaysOff, 不需要靠撑大 contentHeight 来消除滚动条。
-        contentHeight: col.implicitHeight + Theme.spL * 2
+        // 上下留白必须与 col 的 y 偏移(Theme.spXL)和底部收尾一致,
+        // 否则底部会多出或少掉一段空白。
+        contentHeight: col.implicitHeight + Theme.spXL * 2
         clip: true
         boundsBehavior: Flickable.StopAtBounds
 
@@ -57,7 +59,7 @@ Item {
             // 限宽并居中。这里没有 fillHeight 子项, 所以不必给确定高度。
             width: Math.min(body.width - Theme.spL * 2, 640)
             x: (body.width - width) / 2
-            y: Theme.spL
+            y: Theme.spXL
             spacing: Theme.spL
 
             Label {
@@ -562,13 +564,15 @@ Item {
                 border.color: Theme.border
                 border.width: 1
 
-                // ★ pathCol 不用 anchors.fill(只用父宽), 高度由自身内容决定。
-                //   父矩形高= pathCol.implicitHeight, 若 pathCol 再 anchors.fill
-                //   父矩形就成环 → contentHeight 绑定循环 → 渲染撕裂。
+                // ★ pathCol 不用 anchors.fill(只用父宽), 高度也**不能**写
+                //   `height: implicitHeight` —— 那是自引用(implicitHeight
+                //   由自己的子项算出), 会构成
+                //   父矩形高 ← pathCol.implicitHeight ← pathCol.height(自引用)
+                //   的绑定循环, 实测报 contentHeight Binding loop。
+                //   高度完全不设, 让 Layout 自己按内容撑开。
                 ColumnLayout {
                     id: pathCol
                     width: parent.width - 12
-                    height: implicitHeight
                     anchors.horizontalCenter: parent.horizontalCenter
                     spacing: 2
 
