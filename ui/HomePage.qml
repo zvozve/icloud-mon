@@ -48,18 +48,80 @@ Item {
             id: col
             width: body.width - Theme.spL * 2
             x: Theme.spL
-            // 顶部留白用 spXL(24)。原来用 spL(16), 在纯文字页面上方
-            // 显得很挤 —— 标题几乎贴着顶栏底边(书签/密码/相册页都有这感,
-            // 因为这三页顶部是 Label 而非带边框的面板, 没有边框做视觉分隔,
-            // 16px 看着就像没留白)。24px 才有明确的"内容从下方开始"的感觉。
             y: Theme.spL
             spacing: Theme.sp
 
-            Label {
-                text: "四类同步"
-                color: Theme.textHi
-                font.pixelSize: Theme.fsBig
-                font.bold: true
+            // ── iCloud 控制区 ──
+            //
+            // ★ 原先这些控件在顶部固定栏(顶栏)里, 但顶栏是所有页面共用的,
+            //   "启停 iCloud"这种全局操作挂在每个页面的顶栏上并不合适
+            //   (书签页/密码页顶部也摆一个 iCloud 开关, 与该页内容无关)。
+            //   现移到首页: 首页是应用的入口页, 全局操作放这里最自然。
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 64
+                color: Theme.bgPanel
+                radius: Theme.radius
+                border.color: Theme.border
+                border.width: 1
+
+                RowLayout {
+                    anchors.fill: parent
+                    anchors.margins: Theme.spL
+                    spacing: Theme.sp
+
+                    Label {
+                        text: "iCloud"
+                        color: Theme.textHi
+                        font.pixelSize: Theme.fsBig
+                        font.bold: true
+                    }
+
+                    Rectangle {
+                        width: 1; height: 20
+                        color: Theme.border
+                        Layout.alignment: Qt.AlignVCenter
+                    }
+
+                    Label {
+                        text: Bridge.icloudRunning ? "运行中" : "已停止"
+                        color: Bridge.icloudRunning ? Theme.ok : Theme.err
+                        font.pixelSize: Theme.fsBody
+                        font.bold: true
+                    }
+
+                    AppSwitch {
+                        id: icloudSwitch
+                        // ★ 开关状态完全由后端进程事实驱动。
+                        //   **绝对不要在这里写 `checked = ...`** ——
+                        //   那是对绑定属性的 JS 赋值, 会把
+                        //   `checked: Bridge.icloudRunning` 这个绑定删除
+                        //   (QML 规则: C++ 内部写属性不移除绑定, JS 赋值会)。
+                        //   绑定一旦被删, checked 永久停在用户最后拨到的值,
+                        //   不再跟随真实进程状态。点击只调后端动作,
+                        //   由 onProcTimer 经 icloudStateChanged 推回来。
+                        checked: Bridge.icloudRunning
+                        enabled: !Bridge.busyRestarting
+                        onToggled: {
+                            if (checked) Bridge.startIcloud()
+                            else         Bridge.stopIcloud()
+                        }
+                        ToolTip.visible: hovered
+                        ToolTip.text: Bridge.icloudRunning
+                                      ? "点一下停止 iCloud"
+                                      : "点一下启动 iCloud"
+                        ToolTip.delay: 500
+                    }
+
+                    Item { Layout.fillWidth: true }
+
+                    Label {
+                        text: Bridge.dbOk ? ("iCloud v" + Bridge.clientVersion)
+                                          : "数据库不可读"
+                        color: Bridge.dbOk ? Theme.textLo : Theme.err
+                        font.pixelSize: Theme.fsSmall
+                    }
+                }
             }
 
             Label {

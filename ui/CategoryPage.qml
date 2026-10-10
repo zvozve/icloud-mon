@@ -75,13 +75,20 @@ Item {
             //   上下自然分开, 不再像贴着顶栏。
             Rectangle {
                 Layout.fillWidth: true
-                Layout.preferredHeight: 56
+                // ★ 原来写死 56, 装不下"20px 大字 + 上下各 16 边距"(需要 56+)。
+                //   像素实测(1085x850 书签页, 扫描 x=225..330 逐行最亮像素):
+                //     容器 y=16..71(高 56), 文字 y=37..56(高 20)
+                //     → 上边距 21px, 下边距 15px —— **上下不对称**, 视觉上
+                //       就是"文字贴着容器上沿"。
+                //   改成 64: 上下各 22px, 对称, 大字也有呼吸空间。
+                Layout.preferredHeight: 64
                 color: Theme.bgPanel
                 radius: Theme.radius
                 border.color: Theme.border
                 border.width: 1
 
                 RowLayout {
+                    // 边距用 spL(16), 高度 64 时上下各留 24, 上下对称。
                     anchors.fill: parent
                     anchors.margins: Theme.spL
                     spacing: Theme.sp

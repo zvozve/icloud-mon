@@ -128,25 +128,49 @@ Rectangle {
             }
         }
 
-        // ── 刷新按钮 ──
+        // ── 操作区(刷新 + 打开目录) ──
+        //
+        // 这一列**不能**被压缩: 它是操作入口。空间不够时该被省略/截断
+        // 的是左边的长文本, 不是按钮本身(截图里曾出现过"刷新"只剩半个字)。
+        // ★ 两个按钮必须**横向**排: 竖排时窄卡片里会叠成两行, 把下面的
+        //   "更新 时间"挤出卡片下边缘。
         ColumnLayout {
             spacing: 4
             Layout.alignment: Qt.AlignVCenter
-            // 这一列**不能**被压缩: 它是操作入口(手动刷新)。
-            // 空间不够时该被省略/截断的是左边的长文本, 不是按钮本身。
-            // Layout.minimumWidth 取按钮的 implicitWidth, 保证按钮
-            // 永远完整可见 —— 这正是截图里"刷新"只剩半个字的原因。
-            Layout.minimumWidth: 74
+            Layout.minimumWidth: refreshBtn.width + openDriveBtn.width + 6
 
-            AppButton {
-                id: refreshBtn
-                kind: "ghost"
-                minW: 74
-                text: "刷新"
-                onClicked: Bridge.refreshNow()
-                ToolTip.visible: hovered
-                ToolTip.text: "立即刷新 (每 " + Bridge.refreshSec + " 秒自动)"
-                ToolTip.delay: 500
+            RowLayout {
+                spacing: 6
+                Layout.alignment: Qt.AlignHCenter
+
+                AppButton {
+                    id: refreshBtn
+                    kind: "ghost"
+                    minW: 74
+                    text: "刷新"
+                    onClicked: Bridge.refreshNow()
+                    ToolTip.visible: hovered
+                    ToolTip.text: "立即刷新 (每 " + Bridge.refreshSec + " 秒自动)"
+                    ToolTip.delay: 500
+                }
+
+                // 打开 iCloud 同步根目录。
+                //
+                // ★ 从顶部固定栏移到这里: 顶栏是所有页面共用的, 而"打开云盘
+                //   目录"只对云盘页有意义(书签/密码页顶栏也摆个文件夹图标
+                //   同样是噪音)。放在状态卡右侧, 与游标/进程列表同一上下文 ——
+                //   这里显示的就是这个目录的同步状态, 点进去看文件最自然。
+                AppButton {
+                    id: openDriveBtn
+                    kind: "quiet"
+                    iconKind: "folder"
+                    minW: 34
+                    padH: 8
+                    onClicked: Bridge.openDriveRoot()
+                    ToolTip.visible: hovered
+                    ToolTip.text: "打开 iCloud 目录\n" + Bridge.driveRoot
+                    ToolTip.delay: 600
+                }
             }
 
             Label {

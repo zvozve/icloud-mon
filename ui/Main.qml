@@ -286,132 +286,16 @@ ApplicationWindow {
             Layout.fillHeight: true
             spacing: 0
 
-            Rectangle {
-                Layout.fillWidth: true
-                height: 48
-                color: Theme.bgPanel
-
-                Rectangle {
-                    anchors.bottom: parent.bottom
-                    width: parent.width
-                    height: 1
-                    color: Theme.border
-                }
-
-                RowLayout {
-                    anchors.fill: parent
-                    anchors.leftMargin: Theme.spL
-                    anchors.rightMargin: Theme.spL
-                    spacing: Theme.sp
-
-                    // ★ 这里原来有"状态圆点 + 状态名"(如"● 已同步"),
-                    //   已删除。
-                    //
-                    //   理由: 顶栏是**所有页面共用**的框架, 而"同步状态"
-                    //   只对云盘页有意义 —— 书签/密码/相册/设置这些页面
-                    //   根本不涉及上传下载队列, 在它们顶栏挂一个"已同步"
-                    //   是纯噪音(而且会让人误以为该页也在同步)。
-                    //   状态显示的唯一权威位置是云盘页的 StatusCard,
-                    //   那里有上下文、有队列明细、有游标, 状态才有意义。
-                    //
-                    //   同一屏出现两处状态(顶栏 + 状态卡)也是重复 —— 用户
-                    //   明确要求"只需要一处状态显示"。
-                    //
-                    //   左侧改成: 当前页名 + 分隔线 + iCloud 版本 —— 两者都是
-                    //   **全局**信息(我在哪个页面 / 跑的是哪个 iCloud),
-                    //   每个页面都该看到, 且不涉及任何页面的专有状态。
-
-                    Label {
-                        text: win.pageTitle
-                        color: Theme.textHi
-                        font.pixelSize: Theme.fsTitle
-                        font.bold: true
-                    }
-
-                    Rectangle {
-                        width: 1; height: 14
-                        color: Theme.border
-                        Layout.alignment: Qt.AlignVCenter
-                    }
-
-                    Label {
-                        text: Bridge.dbOk ? ("iCloud v" + Bridge.clientVersion)
-                                          : "数据库不可读"
-                        color: Bridge.dbOk ? Theme.textLo : Theme.err
-                        font.pixelSize: Theme.fsSmall
-                    }
-
-                    Item { Layout.fillWidth: true }
-
-                    RowLayout {
-                        spacing: 6
-
-                        Label {
-                            text: Bridge.icloudRunning ? "iCloud 运行中" : "iCloud 已停止"
-                            color: Bridge.icloudRunning ? Theme.ok : Theme.err
-                            font.pixelSize: Theme.fsSmall
-                            font.bold: true
-                        }
-
-                        AppSwitch {
-                            id: icloudSwitch
-                            // ★ 开关状态完全由后端进程事实驱动。
-                            //   **不要在这里写 `checked = ...`** ——
-                            //   那是对绑定属性的 JS 赋值, 会把 `checked:
-                            //   Bridge.icloudRunning` 这个绑定**删除掉**
-                            //   (QML 规则: C++ 内部写属性不移除绑定, JS 赋值会)。
-                            //   绑定一旦被删, checked 就永久停在用户最后拨到的
-                            //   值, 不再跟随真实进程状态 —— 实测出现过
-                            //   文字显示"iCloud 已停止"而开关仍停在"打开"。
-                            //   正确做法: 只声明绑定, 点击时调后端动作,
-                            //   让 onProcTimer 通过 icloudStateChanged 推回来。
-                            checked: Bridge.icloudRunning
-                            enabled: !Bridge.busyRestarting
-                            onToggled: {
-                                // 开关真的做"启停": 关->起 iCloud, 开->停 iCloud。
-                                // 之前无论拨到哪边都是 restartIcloud(), 与旁边的
-                                // "重启"按钮功能完全重复, 是个会误导人的假开关。
-                                if (checked) Bridge.startIcloud()
-                                else         Bridge.stopIcloud()
-                            }
-                            ToolTip.visible: hovered
-                            // 顺带说明重启去哪了 —— 顶栏那个「重启」按钮已删,
-                            // 现在只在异常横幅里提供, 这里说明一下免得找不到。
-                            ToolTip.text: (Bridge.icloudRunning
-                                            ? "点一下停止 iCloud"
-                                            : "点一下启动 iCloud")
-                                          + "\n需要重启时看页面顶部的红色横幅"
-                            ToolTip.delay: 500
-                        }
-
-                        // ★ 这里原来还有一个「重启」按钮, 与左侧的启停开关
-                        //   并排显示, 视觉上两个控件挨在一起、语义又相近
-                        //   (都是对 iCloud 进程动手), 显得重复且挤。
-                        //   已删除: 重启这个动作在异常横幅(AlertBanner)里
-                        //   有一个更醒目的「重启 iCloud」按钮 —— 那才是需要
-                        //   重启时的入口(有异常才提示), 顶栏常驻一个
-                        //   正常状态下用不上的按钮是冗余。
-                        //   启用/停用仍用左侧开关, 打开目录用右侧文件夹图标。
-                    }
-
-                    // 打开 iCloud 目录。
-                    // 原来是 📂 emoji —— 彩色位图不受主题控制, 夹在一排单色图标里
-                    // 最显眼, 这就是"打开云盘图标有点突兀"的来源。
-                    // 改用 NavIcon 的 folder 图元: 与其它图标同一套线条、同一套
-                    // 主题色, 尺寸也对齐按钮高度。
-                    AppButton {
-                        id: openDriveBtn
-                        kind: "quiet"
-                        iconKind: "folder"
-                        minW: 34
-                        padH: 8
-                        onClicked: Bridge.openDriveRoot()
-                        ToolTip.visible: hovered
-                        ToolTip.text: "打开 iCloud 目录\n" + Bridge.driveRoot
-                        ToolTip.delay: 600
-                    }
-                }
-            }
+            // ★ 顶部固定栏已整块删除。
+            //   原来这里是 48px 高的深色固定栏, 内容: 状态圆点+状态名 /
+            //   iCloud 版本 / 启停开关 / 打开目录图标。全部搬走了:
+            //     - 同步状态 -> 云盘页 StatusCard(唯一权威位置)
+            //     - 启停开关 -> 首页(全局操作放入口页最自然)
+            //     - 打开目录 -> 云盘页 StatusCard 右侧(与游标/进程同上下文)
+            //     - 版本号  -> 首页 iCloud 控制区右侧
+            //   固定栏挂在每个页面上, 但这些内容大多只对某一页有意义
+            //   (同步状态/打开目录只对云盘页), 在书签页顶栏也摆一遍
+            //   就是噪音。删掉后内容区直接顶到窗口上沿, 更省垂直空间。
 
             // ── 页面容器 ──
             // 子项顺序固定, 与侧边栏顺序无关(侧边栏顺序只影响导航显示)
