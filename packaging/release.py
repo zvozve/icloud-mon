@@ -48,12 +48,25 @@ def read_version() -> str:
 
 
 def repo_slug() -> str:
+    # 远端名不一定是 origin(本仓库叫 icloud-mon), 依次尝试 origin / 首个远端。
+    names = ["origin"]
     try:
-        url = subprocess.check_output(
-            ["git", "-C", str(ROOT), "remote", "get-url", "origin"],
-            text=True).strip()
-    except Exception as e:
-        fail(f"读取 git remote 失败: {e}")
+        names += [n for n in subprocess.check_output(
+            ["git", "-C", str(ROOT), "remote"], text=True).split() if n != "origin"]
+    except Exception:
+        pass
+    url = ""
+    for n in names:
+        try:
+            url = subprocess.check_output(
+                ["git", "-C", str(ROOT), "remote", "get-url", n],
+                text=True, stderr=subprocess.DEVNULL).strip()
+            if url:
+                break
+        except Exception:
+            continue
+    if not url:
+        fail("无法获取 git remote url")
     m = re.search(r"github\.com[:/]([^/]+/[^/]+?)(?:\.git)?$", url)
     if not m:
         fail(f"无法从 remote 解析 owner/repo: {url}")
