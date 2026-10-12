@@ -8,6 +8,7 @@
 #include <utility>
 #include <memory>
 
+#include <QApplication>
 #include <QCoreApplication>
 #include <QDateTime>
 #include <QDir>
@@ -18,6 +19,7 @@
 #include <QImage>
 #include <QLocalServer>
 #include <QLocalSocket>
+#include <QMenu>
 #include <QOpenGLContext>
 #include <QOpenGLFunctions>
 #include <QPainter>
@@ -439,7 +441,20 @@ int main(int argc, char *argv[])
     //   <Toast/>): 纯 Qt Quick、绝不阻塞、且独立置顶窗口, 主窗口最小化
     //   时也能弹出来(满足"iCloud 卡死时人在别的程序"的提醒需求)。
 
-    QGuiApplication app(argc, argv);
+    // ★ 这里必须是 QApplication(QtWidgets), 不能是 QGuiApplication。
+    //
+    // 历史原因: 本程序界面全在 QML, 起初用 QGuiApplication 完全够用 ——
+    // QSystemTrayIcon 虽属 QtWidgets 模块, 但它本身是 QObject, 不建 QWidget,
+    // 所以能在 QGuiApplication 下正常工作。
+    // 但托盘右键菜单只能通过 QSystemTrayIcon::setContextMenu(QMenu*) 提供,
+    // 而 **QMenu 是货真价实的 QWidget** —— 没有 QApplication 实例时构造它会
+    // 直接致命错误: "QWidget: Cannot create a QWidget without QApplication"。
+    // 实测踩过: 用 QGuiApplication + new QMenu() 启动即挂(exit=127)。
+    //
+    // QApplication 是 QGuiApplication 的子类, 纯 QML 程序用它没有任何副作用;
+    // CMake 里本来就已经因为 QSystemTrayIcon 链接了 Qt5::Widgets。
+    // 顺带的好处: 托盘菜单是 Windows 原生菜单, 观感/交互与系统一致。
+    QApplication app(argc, argv);
     app.setApplicationName(QStringLiteral("iCloudMon"));
     // 刻意**不**设 setApplicationDisplayName: 它在部分 Windows 环境下会被追加到
     // 窗口标题栏, 而 QML 的 title 已含"iCloud 状态监控", 叠加后标题重复成
@@ -448,6 +463,15 @@ int main(int argc, char *argv[])
     // 版本号来自 CMake 的 project(VERSION), 编译期注入(单一真相源),
     // 不再手写字符串 —— 改版本只改 CMakeLists.txt 一处。
     app.setApplicationVersion(QStringLiteral(APP_VERSION));
+
+    // ★ 关闭"最后一个窗口就退出"的默认行为。
+    //
+    // 设置页可以切换关闭按钮的行为(退出 / 关闭窗口后台常驻)。选"后台常驻"
+    // 时窗口会被 hide() 掉 —— 而 hide 掉最后一个可见窗口, Qt 默认会直接
+    // 结束进程, 开关就形同虚设。所以必须关掉这个默认, 由 QML 的 onClosing
+    // 显式决定"隐藏"还是"退出"。
+    // 副作用: 关闭分支必须自己调 Qt.quit(), 不能再指望 Qt 兜底 —— 见 Main.qml。
+    app.setQuitOnLastWindowClosed(false);
 
     // 强制 Fusion 风格, 保证 QML 原生控件在各平台观感一致
     QQuickStyle::setStyle(QStringLiteral("Fusion"));
@@ -583,22 +607,19 @@ int main(int argc, char *argv[])
     // 图形后端信息: 只有它出现后才能确定是不是软件渲染
     logGraphicsBackend(engine);
 
+    // 主窗口裸指针(由 engine 拥有, 活到 app.exec() 返回), 后面多处要用:
+    // 记标题、单实例激活、托盘菜单。engine 根对象为空时前面已 return 1,
+    // 所以这里一定拿得到; 仍保留判空以防 qobject_cast 落空。
+    auto *win = qobject_cast<QQuickWindow *>(engine.rootObjects().constFirst());
+
     // 记录真实窗口标题(setApplicationDisplayName 在部分 Windows 环境下会被
     // 系统追加到窗口标题, 与 QML 的 title 叠加会造成标题重复)
-    if (!engine.rootObjects().isEmpty()) {
-        if (auto *w = qobject_cast<QQuickWindow *>(
-                engine.rootObjects().constFirst()))
-            icloud::log::info(QStringLiteral("[RUN] 窗口标题: \"%1\"")
-                                  .arg(w->title()));
-    }
+    if (win)
+        icloud::log::info(QStringLiteral("[RUN] 窗口标题: \"%1\"")
+                              .arg(win->title()));
 
     // 单实例: 后续任何实例连进来, 把这个已存在的窗口调到前台。
-    // 捕获窗口裸指针(由 engine 拥有, 活到app.exec() 返回), 安全。
     {
-        auto *win = engine.rootObjects().isEmpty()
-                        ? nullptr
-                        : qobject_cast<QQuickWindow *>(
-                              engine.rootObjects().constFirst());
         QObject::connect(instanceServer, &QLocalServer::newConnection, &app,
                          [win, instanceServer]() {
             while (instanceServer->hasPendingConnections()) {
@@ -620,35 +641,79 @@ int main(int argc, char *argv[])
     // ══════════════════════════════════════════════════════════════
     //  系统托盘
     //
-    //  托盘只承担"常驻图标"这一个职责(便于从托盘唤起窗口)。
-    //  卡死告警 / 测试通知改为自建置顶浮层 Toast.qml 弹出 ——
-    //  见 NotificationHub + Main.qml 里的 <Toast/>。原因: 本机
-    //  QSystemTrayIcon::showMessage 走 WinRT Toast COM 会死锁(详见上方
-    //  注释), 自建浮层是纯 Qt Quick、绝不阻塞、且最小化时也能看到。
+    //  托盘承担两个职责:
+    //    ① 常驻图标 —— 窗口关闭后(后台常驻模式)唯一的入口;
+    //    ② 右键菜单: 显示主窗口 / 退出。**必须有** —— 没有它, 用户把窗口
+    //       关掉后就没有任何正常途径重新打开或退出, 只能去任务管理器。
+    //  卡死告警 / 测试通知仍走自建置顶浮层 Toast.qml —— 见 NotificationHub
+    //  与 Main.qml 里的 <Toast/>。原因: 本机 QSystemTrayIcon::showMessage
+    //  走 WinRT Toast COM 会死锁(详见上方注释), 自建浮层是纯 Qt Quick、
+    //  绝不阻塞、且窗口隐藏时也能看到。
     // ══════════════════════════════════════════════════════════════
     QSystemTrayIcon *tray = nullptr;
+    // 菜单在 if 外声明: 下面 aboutToQuit 里要释放它(QMenu 无 QWidget 父对象
+    // 可挂, 又必须活得比托盘久, 所以在这里持有裸指针, 退出时手动 delete)。
+    QMenu *trayMenu = nullptr;
     if (QSystemTrayIcon::isSystemTrayAvailable()) {
         tray = new QSystemTrayIcon(icon, &app);
         tray->setToolTip(QStringLiteral("iCloud 状态监控"));
+
+        // 右键菜单
+        trayMenu = new QMenu();
+        QAction *actShow = trayMenu->addAction(QStringLiteral("显示主窗口"));
+        trayMenu->addSeparator();
+        QAction *actQuit = trayMenu->addAction(QStringLiteral("退出"));
+
+        QObject::connect(actShow, &QAction::triggered, &app, [win]() {
+            if (!win)
+                return;
+            win->show();
+            win->raise();
+            win->requestActivate();
+        });
+        QObject::connect(actQuit, &QAction::triggered, &app,
+                         []() { QCoreApplication::quit(); });
+
+        tray->setContextMenu(trayMenu);
+
+        // 双击/单击托盘图标也唤起窗口(Windows 惯例是双击)。
+        // QSystemTrayIcon::Trigger 覆盖左键单击与双击, 一致地把窗口调到前台。
+        QObject::connect(tray, &QSystemTrayIcon::activated, &app,
+                         [win](QSystemTrayIcon::ActivationReason reason) {
+            if (!win)
+                return;
+            if (reason == QSystemTrayIcon::Trigger
+                || reason == QSystemTrayIcon::DoubleClick) {
+                win->show();
+                win->raise();
+                win->requestActivate();
+            }
+        });
+
         tray->show();
         icloud::log::info(
-            QStringLiteral("[RUN] 系统托盘已启用(通知走置顶浮层, 见 Toast.qml)"));
+            QStringLiteral("[RUN] 系统托盘已启用(右键菜单: 显示主窗口/退出)"));
     } else {
         icloud::log::warn(QStringLiteral(
             "[RUN] 系统托盘不可用, 卡死告警只能记日志(不会弹通知)"));
     }
 
-    if (tray) {
-        // ★ 退出前必须显式 hide()。
-        // Windows 的托盘实现(QWindowsSystemTrayIcon)内部自带一个 QThread 和
-        // 一个隐藏的消息窗口; 直接退出时那个线程会先被销毁, 之后消息窗口再收到
-        // 消息就会踩到已释放的对象 —— 表现为退出阶段的段错误(SIGSEGV),
-        // 同时伴随日志里的 "Timers cannot be stopped from another thread"。
-        // 实测: 不 hide 时正常关闭窗口也会崩; hide 后就干净了。
-        QObject::connect(&app, &QCoreApplication::aboutToQuit, tray, [tray]() {
+    // ★ 退出前必须显式 hide()。
+    // Windows 的托盘实现(QWindowsSystemTrayIcon)内部自带一个 QThread 和
+    // 一个隐藏的消息窗口; 直接退出时那个线程会先被销毁, 之后消息窗口再收到
+    // 消息就会踩到已释放的对象 —— 表现为退出阶段的段错误(SIGSEGV),
+    // 同时伴随日志里的 "Timers cannot be stopped from another thread"。
+    // 实测: 不 hide 时正常关闭窗口也会崩; hide 后就干净了。
+    QObject::connect(&app, &QCoreApplication::aboutToQuit, &app,
+                     [tray, trayMenu]() {
+        if (tray) {
+            // ★ 先解除对菜单的引用再删菜单 —— 托盘内部保存着菜单裸指针,
+            //   若让它析构时还指着已释放的菜单就是悬垂指针。
+            tray->setContextMenu(nullptr);
             tray->hide();
-        });
-    }
+        }
+        delete trayMenu;   // 空指针 delete 安全
+    });
 
     icloud::log::info(QStringLiteral("[RUN] 界面加载完成, 进入事件循环"));
     const int rc = app.exec();

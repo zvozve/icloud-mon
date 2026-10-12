@@ -83,6 +83,38 @@ ApplicationWindow {
     // 启动时按用户设置的默认启动页定位
     Component.onCompleted: currentKey = Bridge.defaultPage
 
+    // ══════════════════════════════════════════════════════════════
+    //  标题栏关闭按钮的行为(设置页可切换)
+    //
+    //  · Bridge.closeToTray == true  -> **关闭窗口**, 进程留在后台常驻
+    //    (继续监控, 托盘图标保留作为唯一入口);
+    //  · Bridge.closeToTray == false -> 关闭 = 退出整个程序。
+    //
+    //  ★ 这里是"关窗口"不是"最小化": hide() 之后窗口从屏幕**和任务栏**
+    //    一起消失, 不会变成任务栏上的一个最小化按钮 —— 符合"关闭窗口但
+    //    后台常驻"的语义。
+    //
+    //  ★ main.cpp 里设了 setQuitOnLastWindowClosed(false)。不设的话,
+    //    hide() 掉最后一个可见窗口会被 Qt 当成"窗口都关了"而直接结束
+    //    进程 —— "后台常驻"就退化成"点关闭就退出", 开关形同虚设。
+    //    代价是两种情况都必须在这里**显式**处理, 不能再依赖 Qt 的默认退出。
+    //
+    //  ★ 关闭时不能用窗口内的 toast 提示 —— 窗口已经隐藏, 弹给自己看没意义。
+    //    走独立置顶浮层(Notifier -> Toast.qml, 它是独立顶层窗口, 隐藏后仍可见)。
+    // ══════════════════════════════════════════════════════════════
+    onClosing: function(close) {
+        if (Bridge.closeToTray) {
+            close.accepted = false        // 拦截本次关闭, 改为隐藏窗口
+            win.hide()
+            Notifier.post("info", "iCloud 监控仍在后台运行",
+                          "窗口已关闭, 程序继续在后台监控。"
+                          + "双击托盘图标可重新打开窗口, 右键托盘图标可彻底退出。")
+        } else {
+            close.accepted = true
+            Qt.quit()
+        }
+    }
+
     // 侧边栏实际显示的类别顺序 = navOrder 里**已启用**的那些。
     // 需求: 在设置里把某类关掉后, 侧边栏与主页都要真正隐藏它(不是灰化)。
     // 这里同时读 categories 和 navOrder, 两者任一变化都会重算;

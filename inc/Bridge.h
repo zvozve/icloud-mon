@@ -289,6 +289,10 @@ class Bridge : public QObject
                          NOTIFY settingsChanged)
     Q_PROPERTY(int     stallSec READ stallSec WRITE setStallSec
                          NOTIFY settingsChanged)
+    // 标题栏关闭按钮的行为: true = 关闭窗口但进程留在后台常驻(托盘),
+    // false = 关闭即退出程序。由 Main.qml 的 onClosing 读取。
+    Q_PROPERTY(bool    closeToTray READ closeToTray WRITE setCloseToTray
+                         NOTIFY settingsChanged)
 
     // ── 异常 ──
     Q_PROPERTY(bool    anomalous READ anomalous NOTIFY anomalyChanged)
@@ -485,6 +489,7 @@ public:
     bool    autoStart() const;
     int     refreshSec() const { return m_refreshSec; }
     int     stallSec() const { return m_monitor->stallSeconds(); }
+    bool    closeToTray() const { return m_closeToTray; }
 
     bool    anomalous() const { return m_anomalous; }
     QString anomalyTitle() const { return m_anomalyTitle; }
@@ -515,6 +520,8 @@ public:
     // 从 QSettings 读回顺序与默认页; 顺带剔除已不存在的 key
     void loadNavSettings();
     void saveNavOrder();
+    // 从 QSettings 读回窗口行为类设置(关闭按钮行为等)
+    void loadUiSettings();
 
     PendingModel       *pendingItems() { return &m_pendingModel; }
     LocalPendingModel  *localPendings() { return &m_localModel; }
@@ -522,6 +529,7 @@ public:
 
     void setRefreshSec(int s);
     void setStallSec(int s);
+    void setCloseToTray(bool on);
 
     // 日志路径(供设置页展示)
     QString logDir() const { return log::logDir(); }
@@ -586,6 +594,11 @@ private:
 
     int     m_refreshSec = 5;
     int     m_stallSec   = 300;   // 卡死阈值(秒), 需与 m_monitor 同步
+    // 标题栏关闭按钮行为(持久化在 QSettings: ui/closeToTray)。
+    // true  = 关闭窗口, 进程后台常驻(托盘图标保留);
+    // false = 关闭窗口即退出程序。
+    // 默认 false —— 与历史行为一致(点关闭即退出), 不改变老用户习惯。
+    bool    m_closeToTray = false;
 };
 
 }  // namespace icloud

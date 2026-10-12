@@ -63,6 +63,8 @@ Bridge::Bridge(QObject *parent)
 
     // 侧边栏顺序与默认启动页(用户设置)
     loadNavSettings();
+    // 窗口行为类设置(关闭按钮行为)
+    loadUiSettings();
 
     // 进程状态轮询: 3s 一次, 比重启按钮的即时性好
     m_procTimer = new QTimer(this);
@@ -646,6 +648,29 @@ void Bridge::saveNavOrder()
     QSettings s = paths::userSettings();
     s.setValue(QStringLiteral("nav/order"), m_navOrder);
     s.sync();
+}
+
+void Bridge::loadUiSettings()
+{
+    QSettings s = paths::userSettings();
+    // 默认 false = 点关闭按钮直接退出, 与历史行为一致(不改变老用户习惯)。
+    m_closeToTray =
+        s.value(QStringLiteral("ui/closeToTray"), false).toBool();
+}
+
+void Bridge::setCloseToTray(bool on)
+{
+    if (m_closeToTray == on)
+        return;
+    m_closeToTray = on;
+
+    QSettings s = paths::userSettings();
+    s.setValue(QStringLiteral("ui/closeToTray"), on);
+    s.sync();
+
+    log::userAction(on ? QStringLiteral("关闭按钮 -> 关闭窗口但进程后台常驻")
+                       : QStringLiteral("关闭按钮 -> 关闭即退出程序"));
+    emit settingsChanged();
 }
 
 void Bridge::moveCategory(const QString &key, int delta)
