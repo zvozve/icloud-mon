@@ -138,8 +138,13 @@ void IcloudService::startAll()
     emit progress(QStringLiteral("正在启动 iCloud (%1)...").arg(aumid));
 
     QProcess p;
+    // ★ 分隔符必须是反斜杠 '\', 不是 '/'.
+    //   AppsFolder 是 Shell 命名空间, 用正斜杠时 explorer 解析不了
+    //   "应用启动" 指令, 会把整串当路径处理失败, 回退打开默认目录
+    //   (Documents) —— 表现就是"启动没反应 + 弹资源管理器".
+    //   见 Bridge.cpp:25 对 explorer 这个坑的说明.
     p.start(QStringLiteral("explorer.exe"),
-            { QStringLiteral("shell:AppsFolder/%1").arg(aumid) });
+            { QStringLiteral("shell:AppsFolder\\%1").arg(aumid) });
     const bool started = p.waitForStarted(5000);
     // explorer 交接完就退出, 这里等它落地, 否则 QProcess 析构会警告
     p.waitForFinished(3000);

@@ -445,7 +445,9 @@ int main(int argc, char *argv[])
     // 窗口标题栏, 而 QML 的 title 已含"iCloud 状态监控", 叠加后标题重复成
     // "iCloud 状态监控 v1.0.1 - 同步中 - iCloud 状态监控"。窗口标题由 QML 唯一提供。
     app.setOrganizationName(QStringLiteral("zvozve"));
-    app.setApplicationVersion(QStringLiteral("1.0.1"));
+    // 版本号来自 CMake 的 project(VERSION), 编译期注入(单一真相源),
+    // 不再手写字符串 —— 改版本只改 CMakeLists.txt 一处。
+    app.setApplicationVersion(QStringLiteral(APP_VERSION));
 
     // 强制 Fusion 风格, 保证 QML 原生控件在各平台观感一致
     QQuickStyle::setStyle(QStringLiteral("Fusion"));

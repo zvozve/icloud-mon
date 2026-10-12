@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(iCloudMon VERSION 1.0.1 LANGUAGES CXX)
+project(iCloudMon VERSION 1.0.3 LANGUAGES CXX)
 
 # ======================================================================
 #  iCloudMon - iCloud Drive 同步状态监控器
@@ -156,6 +156,10 @@ target_compile_definitions(iCloudMon PRIVATE
     _UNICODE
     NOMINMAX
     WIN32_LEAN_AND_MEAN
+    # 版本号单一真相源: 只在文件首行 project(VERSION) 维护一处,
+    # 编译期注入到代码。main.cpp 用 QStringLiteral(APP_VERSION) 引用,
+    # 不再手写版本字符串 —— 避免"改了 CMake 忘了改代码"的漂移。
+    APP_VERSION="${PROJECT_VERSION}"
 )
 
 if(MSVC)

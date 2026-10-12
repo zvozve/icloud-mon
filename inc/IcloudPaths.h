@@ -9,6 +9,7 @@
 #define ICLOUDPATHS_H
 
 #include <QDir>
+#include <QFileInfo>
 #include <QSettings>
 #include <QString>
 #include <QStringList>
@@ -223,10 +224,21 @@ inline QStringList icloudProcessNames()
 // 核实方式(别猜): 看包安装目录 AppxManifest.xml 里的 Application Id
 //   ls "/c/Program Files/WindowsApps/AppleInc.iCloud"*/
 //   grep -oE '<Application Id="[^"]+"' <包目录>/AppxManifest.xml
+//
+// ★ 包族名不再写死: 直接取 packageDir() 的末级目录名(即 PackageFamilyName),
+//   与 packageDir() 的枚举逻辑保持一致 —— 万一 Apple 改了发布者 Id 后缀,
+//   枚举到的新名字会自动生效, 不会因为写死而启动失败。
+//   packageDir() 在找不到时也会回退到原写死值, 所以本函数行为不会比之前更差。
+//   Application Id 默认 "iCloud", 可用环境变量 ICLOUD_APP_ID 覆盖便于调试。
 inline QString icloudAumid()
 {
-    return QStringLiteral(
-        "AppleInc.iCloud_nzyj5cx40ttqa!iCloud");
+    const QByteArray envApp = qgetenv("ICLOUD_APP_ID");
+    const QString appId = envApp.isEmpty()
+        ? QStringLiteral("iCloud")
+        : QString::fromLocal8Bit(envApp);
+
+    const QString family = QFileInfo(packageDir()).fileName();
+    return family + QStringLiteral("!") + appId;
 }
 
 // 自启动注册表键 (用户级, 免管理员)
