@@ -143,6 +143,44 @@ Item {
             Rectangle { Layout.fillWidth: true; height: 1; color: Theme.border }
 
             // ══════════════════════════════════════════════════
+            //  退出按钮执行后台最小化
+            // ══════════════════════════════════════════════════
+            // 只有两态, 用开关而不是下拉: "退出即结束 / 退出但后台常驻"。
+            // 默认关(开=后台常驻), 与历史行为一致。
+            RowLayout {
+                Layout.fillWidth: true
+
+                ColumnLayout {
+                    spacing: 1
+                    Layout.fillWidth: true
+                    Label {
+                        text: "退出按钮执行后台最小化"
+                        color: Theme.textHi
+                        font.pixelSize: Theme.fsBody
+                        font.bold: true
+                    }
+                    Label {
+                        text: "开启：点退出按钮只关闭窗口（不占任务栏），"
+                              + "程序仍在后台监控；双击托盘图标可重新打开，"
+                              + "右键托盘图标可退出。"
+                              + "关闭（默认）：点退出按钮直接结束程序。"
+                        color: Theme.textLo
+                        font.pixelSize: Theme.fsSmall
+                        wrapMode: Text.WordWrap
+                        Layout.fillWidth: true
+                    }
+                }
+
+                AppSwitch {
+                    id: closeToTraySwitch
+                    checked: Bridge.closeToTray
+                    onToggled: Bridge.closeToTray = checked
+                }
+            }
+
+            Rectangle { Layout.fillWidth: true; height: 1; color: Theme.border }
+
+            // ══════════════════════════════════════════════════
             //  刷新间隔
             // ══════════════════════════════════════════════════
             ColumnLayout {
@@ -381,42 +419,6 @@ Item {
             }
 
             Rectangle { Layout.fillWidth: true; height: 1; color: Theme.border }
-
-            // ══════════════════════════════════════════════════
-            //  关闭按钮行为
-            // ══════════════════════════════════════════════════
-            // 只有两态, 用开关而不是下拉: "关闭即退出 / 关闭窗口但后台常驻"。
-            // 默认关(开=后台常驻), 与历史行为一致。
-            RowLayout {
-                Layout.fillWidth: true
-
-                ColumnLayout {
-                    spacing: 1
-                    Layout.fillWidth: true
-                    Label {
-                        text: "关闭按钮行为"
-                        color: Theme.textHi
-                        font.pixelSize: Theme.fsBody
-                        font.bold: true
-                    }
-                    Label {
-                        text: "开启：点标题栏的关闭按钮只关闭窗口（不占任务栏），"
-                              + "程序仍在后台监控；双击托盘图标可重新打开，"
-                              + "右键托盘图标可退出。"
-                              + "关闭（默认）：点关闭按钮直接退出程序。"
-                        color: Theme.textLo
-                        font.pixelSize: Theme.fsSmall
-                        wrapMode: Text.WordWrap
-                        Layout.fillWidth: true
-                    }
-                }
-
-                AppSwitch {
-                    id: closeToTraySwitch
-                    checked: Bridge.closeToTray
-                    onToggled: Bridge.closeToTray = checked
-                }
-            }
 
             // ══════════════════════════════════════════════════
             //  类别启用状态（手动指定）

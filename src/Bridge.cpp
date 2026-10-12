@@ -668,8 +668,8 @@ void Bridge::setCloseToTray(bool on)
     s.setValue(QStringLiteral("ui/closeToTray"), on);
     s.sync();
 
-    log::userAction(on ? QStringLiteral("关闭按钮 -> 关闭窗口但进程后台常驻")
-                       : QStringLiteral("关闭按钮 -> 关闭即退出程序"));
+    log::userAction(on ? QStringLiteral("退出按钮 -> 关闭窗口但进程后台常驻")
+                       : QStringLiteral("退出按钮 -> 直接结束程序"));
     emit settingsChanged();
 }
 
