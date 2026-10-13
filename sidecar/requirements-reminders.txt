@@ -1,0 +1,18 @@
+# 待办 / 备忘录 取数依赖 —— 装进 sidecar/runtime
+#
+# 从零重建（依赖目录不进版本库，见 .gitignore 的 sidecar/runtime）：
+#   <某 python 3.10+> -m venv sidecar/runtime
+#   sidecar/runtime/Scripts/python.exe -m pip install -i https://pypi.org/simple \
+#       -r sidecar/requirements-reminders.txt
+#
+# 注：清华镜像(pypi.tuna)没有 pyicloud，装不上时用 -i https://pypi.org/simple。
+
+# ── 路 A：pyicloud 原生登录 + CloudKit ───────────────────────────────
+# timlaing fork（PyPI 上的 pyicloud 现由 timlaing 维护，CalVer 版本号）。
+# ★ 锁版本：它追的是 Apple 私有 Web API，Apple 一改就可能断。
+#   升级前先跑 sidecar/probe_reminders.py cloudkit 做回归。
+pyicloud==2026.10.0
+
+# ── 路 B：CalDAV + App 专用密码（标准协议，风险低） ─────────────────
+caldav==3.4.0
+icalendar==7.3.0

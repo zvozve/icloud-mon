@@ -26,12 +26,15 @@ iCloudMon 的**取数与判定**从 C++ 迁到 Python 旁路进程，Qt/QML 侧�
 sidecar/
   serve.py              常驻进程：NDJSON IPC 服务端
   probe.py              一次性采样，验证数值用
+  probe_reminders.py    待办取数探针（只读）：CalDAV / pyicloud 两条路各探一次
+  requirements-reminders.txt   待办取数依赖（锁版本；装进 runtime/）
   icloudmon/
     paths.py            路径与用户设置（注册表，与 QSettings NativeFormat 对齐）
     snapshot.py         复制 db+wal+shm → 只读查询 → Snapshot（14 条查询 + 派生状态）
     bridge.py           Snapshot → 与 Bridge.h 属性同名的扁平 JSON
     procs.py            iCloud 进程检测（Toolhelp32 单次快照）
     stall.py            活动指纹 + 历史 jsonl + 卡死判定
+  runtime/              venv，依赖装这里；不进版本库
 ```
 
 ## IPC 协议
@@ -78,6 +81,28 @@ python sidecar/serve.py            # 手动喂 NDJSON 命令
 
 实测（本机，2026-10-13）：采样 45~96ms（含复制 db+wal+shm），
 `stateName=已同步`、`client=3421 server=3421 待应用=0`、`cloudOnly=194/仅云端`。
+
+## 待办（Reminders）取数探针
+
+`probe_reminders.py` 只读，回答"这个账号能不能拿到提醒事项、走哪条路"：
+
+```bash
+# 重建运行时（首次）
+<python 3.10+> -m venv sidecar/runtime
+sidecar/runtime/Scripts/python.exe -m pip install -i https://pypi.org/simple \
+    -r sidecar/requirements-reminders.txt
+
+# 路 B：CalDAV + Apple App 专用密码（零 2FA、口令可吊销；先试这个）
+sidecar/runtime/Scripts/python.exe sidecar/probe_reminders.py caldav   --user you@icloud.com
+# 路 A：pyicloud 原生登录（SRP-6a + 2FA）+ CloudKit
+sidecar/runtime/Scripts/python.exe sidecar/probe_reminders.py cloudkit --user you@icloud.com
+```
+
+口令走 `getpass`（不回显），只打印掩码；地区默认从本机 `iCloudWinPref.plist`
+自动判断（本机已判为**云上贵州**）。**不写任何数据。**
+
+冒烟已验（2026-10-13）：地区探测正确；两个 CalDAV host 都通（假账号返回 401，
+预期内）；pyicloud 分支能到 Apple 的 SRP 端点并给出 "Invalid email/password"。
 
 ## 打包（用户零安装）
 
