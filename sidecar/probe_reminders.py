@@ -29,14 +29,33 @@
     python sidecar/probe_reminders.py both --user you@icloud.com
 
 口令来源(按优先级):
-    1) --app-password / --password
-    2) 环境变量 ICLOUDMON_APP_PASSWORD / ICLOUDMON_PASSWORD
-    3) 交互输入(getpass, 不回显)
+    1) 环境变量 ICLOUDMON_APP_PASSWORD(路 B) / ICLOUDMON_PASSWORD(路 A)
+    2) 交互输入(getpass, 不回显)
+
+    ⚠ 刻意**不提供** --password / --app-password 命令行参数:
+      命令行会进 PowerShell 历史(PSReadLine)与进程命令行(WMI 可查),
+      等于把口令写进本机日志。要非交互就用环境变量, 且用完即删:
+      Remove-Item Env:ICLOUDMON_PASSWORD
 
 参数:
     --china / --no-china   强制国内(云上贵州)或国际版; 默认自动探测
     --limit N              每个清单最多取几条(默认 5, 只为看数据形状)
     --sessions DIR         会话缓存目录(默认 sidecar/runtime/.sessions)
+    --probe-both-hosts     路 B: 两个 CalDAV host 都试(默认只试探测到的一个)
+    --clear-sessions       删除会话缓存(等价"退出登录")后退出
+
+安全与风控契约(硬约束, 改动前先读):
+    1. 口令**不落盘、不进日志**。SRP 只把口令的 sha256 派生证明发给 Apple,
+       明文不出本机; 本脚本只打印掩码, 不写任何文件。落盘的只有**登录成功后**
+       的会话令牌(.sessions/), 那是等价凭据不是口令。
+    2. 认证**单次**: 失败立即退出, 绝不自动重试 —— 无论毫秒级循环还是几十上百次。
+       Apple 侧的失败计数按账号累加, 连续重试 = 自己把账号锁掉。
+       失败后**不要连续重跑本脚本**; 先看错误(口令/地区/网络), 改对了再跑一次。
+    3. 会消耗认证尝试次数的动作只有两处: 路 B 一次 host 登录(默认单 host),
+       路 A 一次 SRP 登录。--probe-both-hosts 会把路 B 变成最多两次,
+       仅在怀疑地区判断错了时才用。
+    4. .sessions/ 里是**等价凭据**(session_id + trust_token, 数周内可免 2FA)。
+       该目录不进版本库; 想"退出登录"就 --clear-sessions 或直接删目录。
 
 退出码: 0 = 至少一条路可用; 1 = 都不可用。
 """
@@ -47,6 +66,7 @@ import argparse
 import getpass
 import os
 import plistlib
+import shutil
 import sys
 from pathlib import Path
 
@@ -124,7 +144,8 @@ def detect_china_mainland() -> bool | None:
 # ======================================================================
 #  路 B —— CalDAV
 # ======================================================================
-def probe_caldav(user: str, password: str, *, china: bool | None, limit: int) -> bool:
+def probe_caldav(user: str, password: str, *, china: bool | None, limit: int,
+                 probe_both: bool = False) -> bool:
     hr("路 B · CalDAV (RFC 4791) + App 专用密码")
 
     try:
@@ -139,8 +160,15 @@ def probe_caldav(user: str, password: str, *, china: bool | None, limit: int) ->
     print(f"  地区   : {'国内(云上贵州)' if china else '国际版' if china is False else '自动'}")
     print()
 
-    # 顺序: 先按探测结果试目标 host, 再试另一个(账号与 host 不匹配会 401)
-    order = ["cn", "intl"] if china else ["intl", "cn"]
+    # 默认**只打一个 host**: 每多打一个 host 就多交一次凭据, 而连续的失败登录
+    # 正是 Apple 风控锁号的触发条件。--probe-both-hosts 才补打第二个。
+    if probe_both:
+        order = ["cn", "intl"] if china else ["intl", "cn"]
+        print("  ! --probe-both-hosts 已开: 最多两次登录尝试(仅地区判断存疑时用)")
+    elif china is True:
+        order = ["cn"]
+    else:
+        order = ["intl"]
 
     client = None
     for key in order:
@@ -162,8 +190,10 @@ def probe_caldav(user: str, password: str, *, china: bool | None, limit: int) ->
 
     if client is None:
         print()
-        print("  结论: ✗ CalDAV 不可用(两个 host 都连不上)")
-        print("        常见原因: 口令不是 App 专用密码 / 账号被锁 / 网络到 Apple 被拦")
+        print("  结论: ✗ CalDAV 不可用(目标 host 连不上)")
+        print("        常见原因: 口令不是 App 专用密码 / 地区判断错 / 账号被锁 / 网络到 Apple 被拦")
+        print("        ⚠ 不要连续重跑。先核对上面那条错误; 只有确认地区可能判错,")
+        print("          才单独跑一次 --probe-both-hosts。反复重试只会累加失败计数。")
         return False
 
     # ── 找支持 VTODO 的集合(提醒事项清单) ──
@@ -266,7 +296,7 @@ def probe_cloudkit(user: str, password: str, *, china: bool | None,
     print(f"  口令   : {mask(password)}")
     print(f"  地区   : {'国内(云上贵州)' if china else '国际版' if china is False else '自动'}")
     print(f"  会话   : {sessions}")
-    print("  (使用副 Apple ID 测试; 登录失败多次会触发风控锁号)")
+    print("  (登录失败不重试, 失败即退出; 连续重跑同样会累加失败计数并触发风控锁号)")
     print()
 
     try:
@@ -284,6 +314,7 @@ def probe_cloudkit(user: str, password: str, *, china: bool | None,
     except PyiCloudFailedLoginException as e:
         print(f"  结论: ✗ 登录失败: {e}")
         print("        口令错误 / 账号被锁 / 需要 App 专用密码")
+        print("        ⚠ 已停止, 不会重试。核对口令与地区后再跑**一次**, 不要连续重跑。")
         return False
     except PyiCloudServiceNotActivatedException as e:
         print(f"  结论: ✗ 该项服务未开通: {e}")
@@ -375,26 +406,42 @@ def main() -> int:
         description="待办(Reminders)取数探针 —— 只读",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    ap.add_argument("path", choices=["caldav", "cloudkit", "both"])
-    ap.add_argument("--user", required=True, help="Apple ID")
-    ap.add_argument("--password", help="路 A: Apple ID 密码")
-    ap.add_argument("--app-password", help="路 B: App 专用密码(xxxx-xxxx-xxxx-xxxx)")
+    ap.add_argument("path", nargs="?", choices=["caldav", "cloudkit", "both"],
+                    default=None)
+    ap.add_argument("--user", help="Apple ID")
+    # 刻意不提供 --password / --app-password: 命令行会进 shell 历史与进程列表,
+    # 等于把口令写进本机日志。口令只从环境变量或 getpass 取(见文件头契约)。
     ap.add_argument("--china", action=argparse.BooleanOptionalAction, default=None,
                     help="强制国内(云上贵州)/国际版; 默认自动探测")
     ap.add_argument("--limit", type=int, default=5, help="每清单取样条数")
     ap.add_argument("--sessions", default=str(DEFAULT_SESSIONS))
+    ap.add_argument("--probe-both-hosts", action="store_true",
+                    help="路 B: 两个 CalDAV host 都试(默认只试探测到的一个)")
+    ap.add_argument("--clear-sessions", action="store_true",
+                    help="删除会话缓存(等价退出登录)后退出")
     args = ap.parse_args()
+
+    sessions = Path(args.sessions)
+
+    if args.clear_sessions:
+        if sessions.exists():
+            shutil.rmtree(sessions)
+            print(f"[i] 已删除会话缓存: {sessions}")
+        else:
+            print(f"[i] 会话缓存不存在: {sessions}")
+        return 0
+
+    if not args.path:
+        ap.error("需要指定 caldav | cloudkit | both")
+    if not args.user:
+        ap.error("需要 --user <Apple ID>")
 
     china = args.china
     if china is None:
         china = detect_china_mainland()
         print(f"[i] 地区自动探测: {'国内(云上贵州)' if china else '国际版' if china is False else '未知, 交由库判断'}")
 
-    sessions = Path(args.sessions)
-
-    def get(pw_arg: str | None, envs: list[str], label: str) -> str:
-        if pw_arg:
-            return pw_arg
+    def get(envs: list[str], label: str) -> str:
         for e in envs:
             v = os.environ.get(e)
             if v:
@@ -405,13 +452,12 @@ def main() -> int:
     ok_b = ok_a = False
 
     if args.path in ("caldav", "both"):
-        pw = get(args.app_password, ["ICLOUDMON_APP_PASSWORD", "ICLOUDMON_PASSWORD"],
-                 "App 专用密码")
-        ok_b = probe_caldav(args.user, pw, china=china, limit=args.limit)
+        pw = get(["ICLOUDMON_APP_PASSWORD", "ICLOUDMON_PASSWORD"], "App 专用密码")
+        ok_b = probe_caldav(args.user, pw, china=china, limit=args.limit,
+                            probe_both=args.probe_both_hosts)
 
     if args.path in ("cloudkit", "both"):
-        pw = get(args.password, ["ICLOUDMON_PASSWORD"],
-                 "Apple ID 密码")
+        pw = get(["ICLOUDMON_PASSWORD"], "Apple ID 密码")
         ok_a = probe_cloudkit(args.user, pw, china=china, limit=args.limit,
                               sessions=sessions)
 

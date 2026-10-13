@@ -101,8 +101,33 @@ sidecar/runtime/Scripts/python.exe sidecar/probe_reminders.py cloudkit --user yo
 口令走 `getpass`（不回显），只打印掩码；地区默认从本机 `iCloudWinPref.plist`
 自动判断（本机已判为**云上贵州**）。**不写任何数据。**
 
+### 凭据与风控（硬约束，改动前先读）
+
+| 项 | 事实 / 约束 |
+|---|---|
+| 口令去向 | **不落盘、不进日志、不走命令行**。SRP 只把 `sha256(口令)` 派生的证明发给 Apple，明文不出本机；脚本只打印掩码 |
+| 为什么没有 `--password` | 命令行会进 PowerShell 历史（PSReadLine）和进程列表（WMI 可查），等于把口令写进本机日志。要非交互就用环境变量，**用完即删**：`Remove-Item Env:ICLOUDMON_PASSWORD` |
+| 认证次数 | **单次**。失败立即退出，**绝不自动重试** —— 无论毫秒级循环还是几十上百次 |
+| 为什么会锁号 | Apple 的失败计数按**账号**累加，连续重试 = 自己把号锁掉。失败后先看错误（口令 / 地区 / 网络），改对了再跑**一次** |
+| 哪些动作消耗次数 | 只有两处：路 B 一次 host 登录（**默认单 host**）、路 A 一次 SRP 登录。`--probe-both-hosts` 会把路 B 变成最多两次，仅在怀疑地区判断错时用 |
+| 会话缓存 `.sessions/` | 存的是**等价凭据**（`session_id` + `trust_token`，数周内可免 2FA），**不是**口令。不进版本库；`--clear-sessions` 即"退出登录" |
+| 库内有无自动重试 | 已核实：pyicloud `_authenticate` / `_srp_authentication` 单次无循环；`PCS_MAX_RETRIES=10` 只用于照片服务设备授权轮询，与登录/待办无关；caldav 的限流重试（`rate_limit_handle`）**默认关闭**；CloudKit 遇 `THROTTLED` 是**抛异常**（带 Retry-After）而非自动重试 |
+| ⚠ 别让重启变成登录 | C++ 侧对旁路进程有**自动重启退避**（1s→30s 封顶，`SidecarClient::scheduleRestart`）。认证**绝不能放在进程启动路径上** —— 否则进程每被拉起一次就是一次登录尝试。待办上线后必须：优先用会话 token **静默复用**；token 失效就标记"需重新登录"并**停止**，等用户手动操作，而不是随重启自动重登 |
+
+离线验证（2026-10-13，用桩模块冒充 caldav，不联网、不碰 Apple 端点）：
+
+```
+国内账号 默认               → 凭据提交 1 次
+国际账号 默认               → 凭据提交 1 次
+地区未知 默认               → 凭据提交 1 次
+国内账号 --probe-both-hosts → 凭据提交 2 次
+```
+
 冒烟已验（2026-10-13）：地区探测正确；两个 CalDAV host 都通（假账号返回 401，
 预期内）；pyicloud 分支能到 Apple 的 SRP 端点并给出 "Invalid email/password"。
+
+**未来 Qt 侧登录表单（若走路 A）必须遵守同一条**：一次点击 = 一次提交，失败只给
+提示、**不自动重试、不退避重试**；要再试必须由用户再点一次。
 
 ## 打包（用户零安装）
 
