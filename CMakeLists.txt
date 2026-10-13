@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(iCloudMon VERSION 1.0.4 LANGUAGES CXX)
+project(iCloudMon VERSION 1.0.5 LANGUAGES CXX)
 
 # ======================================================================
 #  iCloudMon - iCloud Drive 同步状态监控器
