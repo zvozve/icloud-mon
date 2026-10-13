@@ -15,17 +15,23 @@
 
 [x] sidecar/icloudmon/stall.py —— 活动指纹 + 历史 jsonl + 卡死判定；指纹不含时间戳，观测期内不变时 last_change 退化为观测起点
 
-[x] sidecar/icloudmon/service.py —— iCloud 启停：taskkill /F /IM 四进程；启动必须 explorer.exe shell:AppsFolder\<AUMID>（反斜杠）
-
-[x] sidecar/serve.py —— NDJSON 常驻 IPC（start/stop/refresh/icloud/setting/history.reset/ping/quit）
+[x] sidecar/serve.py —— NDJSON 常驻 IPC（start/stop/refresh/setting/history.reset/ping/quit）
 
 [x] sidecar/probe.py —— 一次性采样探针
 
 [x] 实测：probe 读到 clientVersion 3.12.11.6、已同步、client=3421 server=3421 待应用=0、仅云端 194、采样 45~96ms；serve 周期推送正常（interval=1，3.5s 内 4 帧）
 
+[x] 职责归位：iCloud 启停**暂留 C++**（原 sidecar/icloudmon/service.py 已删除）—— 两侧都是调同一个 taskkill、效果打平，而 C++ 侧已实现且踩过坑（taskkill 128 视为成功、AppsFolder 反斜杠），还能直接驱动 UI 的 busy/progress 文案。旁路收到 `icloud` 命令明确报错，避免两处各写一份
+
+## 分工（一句话）
+
+Python 采集（取数 + 判定 + 将来的网页 API）、C++ 客户端控制（iCloud 启停 + 桌面外壳 + 旁路生命周期 + 桥接）、QML 界面。
+
+**选边原则（用户明确）：谁做得更好就用谁 —— 更准、更快、更省事的一侧胜出，不搞语言教条；唯一红线是同一件事只允许一处实现。** 判据与可迁条件见 `doc/架构边界与风险控制.md`。
+
 ## 待办
 
-[ ] Qt 侧接入：QProcess 拉起 sidecar/serve.py，解析 NDJSON 写入 Bridge 属性，替换 IcloudMonitor + IcloudService 两条数据源
+[ ] Qt 侧接入：QProcess 拉起 sidecar/serve.py，解析 NDJSON 写入 Bridge 属性；只替换 IcloudMonitor（数据源），**IcloudService 保留**（启停仍走它）
 
 [ ] 三个 QML ListModel（pendingItems / localPendings / trashItems）改为从 payload 数组填充，绑定表达式保持不变
 

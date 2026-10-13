@@ -12,9 +12,13 @@ iCloudMon 的**取数与判定**从 C++ 迁到 Python 旁路进程，Qt/QML 侧�
 
 ## 边界（别越界）
 
-- 旁路**只做数据**：不建窗口、不做托盘、不弹通知。通知/托盘/自启动仍在 Qt 侧。
+- 旁路**只做采集与判定**：不建窗口、不做托盘、不弹通知、**不做 iCloud 启停**。
+  启停属于"客户端控制"，归 C++ 侧的 `IcloudService`（已实现且踩过坑）。
+- 通知/托盘/自启动仍在 Qt 侧。
 - 单一真相源仍在主进程：旁路输出的字段名与 `inc/Bridge.h` 的 `Q_PROPERTY` 同名，
   QML 绑定表达式不需要改。
+
+分工一句话：**Python 采集、C++ 客户端控制、QML 界面。**
 
 ## 目录
 
@@ -28,7 +32,6 @@ sidecar/
     bridge.py           Snapshot → 与 Bridge.h 属性同名的扁平 JSON
     procs.py            iCloud 进程检测（Toolhelp32 单次快照）
     stall.py            活动指纹 + 历史 jsonl + 卡死判定
-    service.py          iCloud 启停（taskkill / explorer shell:AppsFolder）
 ```
 
 ## IPC 协议
@@ -41,7 +44,6 @@ sidecar/
 {"id":1,"cmd":"start","interval":5}      启动周期采样
 {"id":2,"cmd":"stop"}                    停止周期采样（停止前会补推一帧）
 {"id":3,"cmd":"refresh"}                 立即采样，结果走 reply
-{"id":4,"cmd":"icloud","action":"start|stop|restart"}
 {"id":5,"cmd":"setting.get","key":"driveRoot"}
 {"id":6,"cmd":"setting.set","key":"ui/closeToTray","value":true}
 {"id":7,"cmd":"history.reset"}           清空卡死检测基线
@@ -49,13 +51,14 @@ sidecar/
 {"id":9,"cmd":"quit"}
 ```
 
+注意没有 `icloud` 命令——启停由 C++ 负责（发过去会明确报错）。
+
 **事件（stdout）**
 
 ```
 {"evt":"ready","data":{pid,driveRoot,dbFile,refreshSec,stallSec}}
 {"evt":"snapshot","data":{...}}          周期推送，无 id
 {"evt":"reply","id":n,"data":{...}}      命令响应
-{"evt":"icloudResult","data":{ok,message}}
 {"evt":"error","data":{message}}         采样/命令失败
 {"evt":"bye","data":{pid}}
 ```

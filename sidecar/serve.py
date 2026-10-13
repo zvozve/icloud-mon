@@ -14,12 +14,15 @@
 #    {"cmd":"refresh"}                        立即采样一次
 #    {"cmd":"start","interval":5}             启动周期采样(秒)
 #    {"cmd":"stop"}                           停止周期采样
-#    {"cmd":"icloud","action":"start|stop|restart"}
 #    {"cmd":"setting.get","key":"driveRoot"}
 #    {"cmd":"setting.set","key":"driveRoot","value":"C:/..."}
 #    {"cmd":"setting.set","key":"ui/closeToTray","value":true}
 #    {"cmd":"history.reset"}                  清空卡死检测基线
 #    {"cmd":"quit"}                           退出
+#
+#  ★ 这里**没有** iCloud 启停命令: 启停属于"客户端控制", 归 C++ 侧的
+#    IcloudService(taskkill + explorer shell:AppsFolder), 旁路只做取数与判定。
+#    两处各写一份同一逻辑, 就是"职责重叠", 正是要避免的。
 # ======================================================================
 from __future__ import annotations
 
@@ -34,7 +37,6 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from icloudmon import paths                                   # noqa: E402
 from icloudmon.bridge import build                            # noqa: E402
 from icloudmon.procs import running_processes                 # noqa: E402
-from icloudmon import service                                 # noqa: E402
 from icloudmon.snapshot import sample                         # noqa: E402
 from icloudmon.stall import append_history, detect_stall, reset_history  # noqa: E402
 
@@ -46,6 +48,8 @@ _state = {
     "refresh_sec": DEFAULT_REFRESH_SEC,
     "stall_sec": DEFAULT_STALL_SEC,
     "running": False,
+    # 旁路不再持有"正在重启 iCloud"的状态 —— 启停归 C++, 该标志由 C++ 侧
+    # 根据自己的 IcloudService 状态填充, 这里恒为 False。
     "restarting": False,
     "last": None,          # 最近一次 payload (供 setting 变更后即时重发)
 }
@@ -129,25 +133,9 @@ def handle(cmd: dict) -> None:
         do_sample()          # 停之前再推一帧, 保证界面数字是最终的
 
     elif name == "icloud":
-        action = cmd.get("action", "")
-        with _lock:
-            _state["restarting"] = True
-        emit("reply", {"ok": True, "action": action}, rid)
-        try:
-            if action == "stop":
-                ok, msg = service.stop_all()
-            elif action == "start":
-                ok, msg = service.start_all()
-            elif action == "restart":
-                ok, msg = service.restart()
-            else:
-                ok, msg = False, f"未知动作: {action}"
-        except Exception as e:                        # noqa: BLE001
-            ok, msg = False, f"操作异常: {e}"
-        with _lock:
-            _state["restarting"] = False
-        emit("icloudResult", {"ok": ok, "message": msg})
-        do_sample()                                   # 状态立即回传界面
+        # 明确拒绝: 启停由 C++ 侧负责, 这里回错误而不是静默忽略,
+        # 免得将来误以为旁路也支持控制而两边都去实现一遍。
+        emit("error", {"message": "iCloud 启停由主程序(C++)负责, 旁路不提供该命令"}, rid)
 
     elif name == "setting.get":
         emit("reply", {"value": paths.setting_get(str(cmd.get("key")))}, rid)
