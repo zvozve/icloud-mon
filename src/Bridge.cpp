@@ -7,8 +7,11 @@
 #include <QDesktopServices>
 #include <QDir>
 #include <QFileInfo>
+#include <QJsonArray>
+#include <QJsonObject>
 #include <QProcess>
 #include <QSettings>
+#include <QStandardPaths>
 #include <QUrl>
 
 #include "IcloudPaths.h"
@@ -39,23 +42,66 @@ bool openInShell(const QString &path)
     return true;
 }
 
+// ★ 过渡桥(临时, 有明确删除条件) ──────────────────────────────────
+// 四类同步分类(IcloudCategories)还没迁到 Python —— 见 doc/待办/01 的
+// "四类同步分类移植"。它按 Snapshot 取值, 所以这里把 payload 里的**原始计数**
+// 字段反填成最小 Snapshot。只填 readDrive() 真正用到的字段; stateName()/
+// stateDetail() 是派生方法, 填好原值后自会算出与 Python 相同的结果。
+// 分类迁移完成后, 本函数与 IcloudCategories 一起删。
+Snapshot snapshotForCategories(const QJsonObject &p)
+{
+    Snapshot s;
+    s.dbOk          = p.value(QStringLiteral("dbOk")).toBool();
+    s.clientVersion = p.value(QStringLiteral("clientVersion")).toString();
+    s.hasRank       = p.value(QStringLiteral("hasRank")).toBool();
+    s.rankClient    = qint64(p.value(QStringLiteral("rankClient")).toDouble());
+    s.rankServer    = qint64(p.value(QStringLiteral("rankServer")).toDouble());
+    s.unapplied     = p.value(QStringLiteral("unapplied")).toInt();
+    s.inSync        = p.value(QStringLiteral("inSync")).toBool();
+    s.faults        = p.value(QStringLiteral("faults")).toInt();
+    s.overQuota     = p.value(QStringLiteral("overQuota")).toInt();
+    s.cloudOnlyCount = p.value(QStringLiteral("cloudOnlyCount")).toInt();
+    s.trashCount    = p.value(QStringLiteral("trashCount")).toInt();
+
+    QueueStat &q = s.queue;
+    q.needUpCount   = p.value(QStringLiteral("needUpCount")).toInt();
+    q.needUpBytes   = qint64(p.value(QStringLiteral("needUpBytes")).toDouble());
+    q.needDlCount   = p.value(QStringLiteral("needDlCount")).toInt();
+    q.needDlBytes   = qint64(p.value(QStringLiteral("needDlBytes")).toDouble());
+    q.needDelCount  = p.value(QStringLiteral("needDelCount")).toInt();
+    q.pendingFetches = p.value(QStringLiteral("pendingFetches")).toInt();
+    q.dlUnstaged    = p.value(QStringLiteral("dlUnstaged")).toInt();
+
+    // 本地未提交项: 分类页只关心"有没有", 给一条占位即可让 isBusy/stateName
+    // 的判据与旁路一致(localPendings 非空 => 可能是"待提交")。
+    if (p.value(QStringLiteral("localPendingTotal")).toInt() > 0) {
+        LocalPending lp;
+        lp.name = QStringLiteral("(见首页待处理面板)");
+        s.localPendings.append(lp);
+        s.localPendingTotal = p.value(QStringLiteral("localPendingTotal")).toInt();
+    }
+    return s;
+}
+
 }  // namespace
 
 Bridge::Bridge(QObject *parent)
     : QObject(parent)
-    , m_monitor(new IcloudMonitor(this))
+    , m_sidecar(new SidecarClient(this))
     , m_service(new IcloudService(this))
     , m_autoStart(new AutoStart(this))
 {
-    connect(m_monitor, &IcloudMonitor::snapshotReady,
-            this, &Bridge::onSnapshot);
-    connect(m_monitor, &IcloudMonitor::stateChanged,
-            this, &Bridge::onStateChanged);
-    connect(m_monitor, &IcloudMonitor::anomalyDetected,
-            this, &Bridge::onAnomaly);
-    connect(m_monitor, &IcloudMonitor::anomalyCleared,
-            this, &Bridge::onAnomalyCleared);
+    // ── 数据源 = Python 旁路 ──
+    // IcloudMonitor(C++ 直读 db) 已不再被引用(见 CMakeLists 与 IcloudMonitor.h
+    // 顶部的 deprecated 说明)。取数与判定只在 Python 侧实现一次。
+    connect(m_sidecar, &SidecarClient::snapshotReady,
+            this, &Bridge::onSidecarSnapshot);
+    connect(m_sidecar, &SidecarClient::onlineChanged,
+            this, &Bridge::onSidecarOnlineChanged);
 
+    // ── 客户端控制 = IcloudService(C++) ──
+    // 启停留在 C++: 与 Python 侧效果打平, 但已实现且实测过坑, 还能直接驱动
+    // 界面上的 busy/progress 文案, 省一次 IPC 往返。见 doc/架构边界与风险控制.md
     connect(m_service, &IcloudService::finished,
             this, &Bridge::onIcloudFinished);
     connect(m_service, &IcloudService::progress,
@@ -81,18 +127,19 @@ Bridge::~Bridge() = default;
 // ── 监控控制 ──────────────────────────────────────────────────────
 void Bridge::startMonitoring()
 {
-    m_monitor->setStallSeconds(m_stallSec);
-    m_monitor->start(m_refreshSec * 1000);
+    // 采样间隔在旁路侧生效(stall 阈值同理由旁路持有, 见 sidecar/stall.py)
+    m_sidecar->start();
+    m_sidecar->setRefreshSec(m_refreshSec);
 }
 
 void Bridge::stopMonitoring()
 {
-    m_monitor->stop();
+    m_sidecar->stopSampling();
 }
 
 void Bridge::refreshNow()
 {
-    m_monitor->refresh();
+    m_sidecar->refreshNow();
 }
 
 // ── iCloud 控制 ───────────────────────────────────────────────────
@@ -134,7 +181,7 @@ void Bridge::onIcloudFinished(bool ok, const QString &msg)
     emit icloudStateChanged();
     emit notify(ok ? QStringLiteral("ok") : QStringLiteral("error"), msg);
     onProcTimer();          // 立即刷新进程状态
-    m_monitor->refresh();   // 重启后同步状态会变, 立刻采一次
+    m_sidecar->refreshNow();   // 重启后同步状态会变, 立刻采一次
 }
 
 void Bridge::onIcloudProgress(const QString &msg)
@@ -196,16 +243,20 @@ bool Bridge::setAutoStart(bool on)
 }
 
 // ── 历史 ──────────────────────────────────────────────────────────
+// 基线文件由旁路维护(sidecar/stall.py), 位置与旧 C++ 版一致:
+// %APPDATA%\zvozve\iCloudMon\icloud_state.jsonl
 void Bridge::resetHistory()
 {
-    m_monitor->resetHistory();
+    m_sidecar->resetHistory();
     log::userAction(QStringLiteral("清空卡死检测基线"), QStringLiteral("成功"));
     emit notify(QStringLiteral("ok"), QStringLiteral("已清空历史基线"));
 }
 
 QString Bridge::stateFilePath() const
 {
-    return m_monitor->stateFilePath();
+    const QString dir =
+        QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    return dir + QDir::separator() + paths::stateFile();
 }
 
 // 在资源管理器中定位一个路径。
@@ -429,8 +480,8 @@ bool Bridge::setDriveRoot(const QString &path)
                                    : QStringLiteral("成功(未检测到 .icloud)"));
     emit driveRootChanged();
     emit notify(QStringLiteral("ok"), QStringLiteral("同步根目录已更新"));
-    // 路径变了, 立刻重采一次让界面跟上
-    m_monitor->refresh();
+    // 路径变了, 立刻重采一次让界面跟上(旁路每帧都从注册表读根目录)
+    m_sidecar->refreshNow();
     return true;
 }
 
@@ -441,28 +492,148 @@ void Bridge::resetDriveRoot()
                     paths::driveRoot());
     emit driveRootChanged();
     emit notify(QStringLiteral("ok"), QStringLiteral("已恢复默认路径"));
-    m_monitor->refresh();
+    m_sidecar->refreshNow();
 }
 
-// ── 快照处理 ──────────────────────────────────────────────────────
-void Bridge::onSnapshot(const icloud::Snapshot &s)
+// ── 快照处理(来自 Python 旁路的 NDJSON) ───────────────────────────
+//
+// ★ 单一真相源: 这里**不做任何判定**, 只把 payload 落到模型与缓存。
+//   状态名/详情/忙闲/异常全部由旁路给出(sidecar/bridge.py), C++ 侧再算一遍
+//   就等于有两个真相源 —— 这是本文件历史上最容易变乱的地方, 别退回去。
+void Bridge::onSidecarSnapshot(const QJsonObject &payload)
 {
-    m_snap = s;
-    m_pendingModel.setItems(s.pendingItems);
-    m_localModel.setItems(s.localPendings);
-    m_trashModel.setItems(s.trashItems);
+    m_payload = payload;
+
+    // 明细列表 -> 三个 ListModel(角色名不变, QML 绑定无需改动)
+    QVector<PendingItem> pend;
+    for (const QJsonValue &v : payload.value(QStringLiteral("pendingItems")).toArray()) {
+        const QJsonObject o = v.toObject();
+        PendingItem it;
+        it.name    = o.value(QStringLiteral("name")).toString();
+        it.bytes   = qint64(o.value(QStringLiteral("size")).toDouble());
+        it.isDir   = o.value(QStringLiteral("isDir")).toBool();
+        it.path    = o.value(QStringLiteral("path")).toString();
+        it.missing = o.value(QStringLiteral("missing")).toBool();
+        pend.append(it);
+    }
+    m_pendingModel.setItems(pend);
+
+    QVector<LocalPending> loc;
+    for (const QJsonValue &v : payload.value(QStringLiteral("localPendings")).toArray()) {
+        const QJsonObject o = v.toObject();
+        LocalPending p;
+        p.name    = o.value(QStringLiteral("name")).toString();
+        p.bytes   = qint64(o.value(QStringLiteral("bytes")).toDouble());
+        p.absPath = o.value(QStringLiteral("path")).toString();
+        // stateText 仅用于展示, 这里按字符串是否存在判断标志位
+        const QString st = o.value(QStringLiteral("stateText")).toString();
+        p.inFlight = st.contains(QStringLiteral("inflight"));
+        p.hasDiff  = st.contains(QStringLiteral("diff"));
+        loc.append(p);
+    }
+    m_localModel.setItems(loc);
+
+    QVector<TrashItem> trash;
+    for (const QJsonValue &v : payload.value(QStringLiteral("trashItems")).toArray()) {
+        const QJsonObject o = v.toObject();
+        TrashItem t;
+        t.name        = o.value(QStringLiteral("name")).toString();
+        t.restorePath = o.value(QStringLiteral("restorePath")).toString();
+        trash.append(t);
+    }
+    m_trashModel.setItems(trash);
+
+    applyAnomalies(payload.value(QStringLiteral("anomalies")).toArray());
+
     refreshCategories();
     emit snapshotChanged();
 }
 
-void Bridge::onStateChanged(const icloud::Snapshot &s)
+// 异常落到 m_anomaly*: 语义与旧 C++ 版逐条一致(见原 Bridge::onAnomaly 注释)
+void Bridge::applyAnomalies(const QJsonArray &arr)
 {
-    m_snap = s;
-    m_pendingModel.setItems(s.pendingItems);
-    m_localModel.setItems(s.localPendings);
-    m_trashModel.setItems(s.trashItems);
-    refreshCategories();
+    const bool wasAnomalous = m_anomalous;
+    const bool nowAnomalous = !arr.isEmpty();
+
+    m_anomalyList.clear();
+    m_anomalyTitle.clear();
+    m_anomalyDetail.clear();
+
+    bool isNewKind = false;
+    for (const QJsonValue &v : arr) {
+        const QJsonObject o = v.toObject();
+        const QString kind   = o.value(QStringLiteral("kind")).toString();
+        const QString title  = o.value(QStringLiteral("title")).toString();
+        const QString detail = o.value(QStringLiteral("detail")).toString();
+        // 与旧实现一致: 后一条覆盖标题/详情
+        m_anomalyTitle  = title;
+        m_anomalyDetail = detail;
+        if (!m_anomalyList.contains(kind)) {
+            m_anomalyList.append(kind);
+            isNewKind = true;
+        }
+    }
+    m_anomalous = nowAnomalous;
+
+    // 弹窗只在新出现 / 换了种类时给。持续卡死状态下每帧都弹的话,
+    // Toast 动画会被反复重启, 既是持续打扰也让界面反复重绘。
+    if (nowAnomalous && (!wasAnomalous || isNewKind)) {
+        const QString kind = m_anomalyList.value(0);
+        // 卡死 -> 置顶浮层系统通知(跨应用可见); 其余 -> 窗口内 Toast
+        if (m_anomalyList.contains(QStringLiteral("卡死"))) {
+            log::userAction(QStringLiteral("卡死告警触发系统通知"),
+                            QStringLiteral("停滞 %1").arg(m_anomalyDetail));
+            emit systemNotify(m_anomalyTitle, m_anomalyDetail);
+        } else {
+            emit notify(QStringLiteral("warn"),
+                        QStringLiteral("[%1] %2").arg(kind, m_anomalyTitle));
+        }
+    } else if (!nowAnomalous && wasAnomalous) {
+        log::info(QStringLiteral("[ANOMALY] 已恢复, 同步回到正常"));
+        emit notify(QStringLiteral("ok"), QStringLiteral("同步已恢复正常"));
+    }
+    emit anomalyChanged();
+}
+
+// 旁路离线: 明确不可用, **不沿用旧数据**
+void Bridge::applyOffline(const QString &reason)
+{
+    m_payload = QJsonObject();      // 清空 -> getter 全部回落为 0/"—"
+    m_pendingModel.setItems({});
+    m_localModel.setItems({});
+    m_trashModel.setItems({});
+    // 合成一帧"不可用"快照: 状态区直接显示原因, 数字归零
+    QJsonObject p;
+    p.insert(QStringLiteral("dbOk"), false);
+    p.insert(QStringLiteral("stateName"), QStringLiteral("监控不可用"));
+    p.insert(QStringLiteral("stateDetail"),
+             reason.isEmpty() ? QStringLiteral("监控旁路未运行") : reason);
+    p.insert(QStringLiteral("busy"), false);
+    m_payload = p;
     emit snapshotChanged();
+}
+
+void Bridge::onSidecarOnlineChanged(bool online, const QString &reason)
+{
+    m_sidecarOnline = online;
+    m_sidecarOfflineReason = online ? QString() : reason;
+
+    if (online) {
+        log::info(QStringLiteral("[BRIDGE] 旁路在线, 开始接收采样"));
+        emit notify(QStringLiteral("ok"), QStringLiteral("监控已恢复"));
+    } else {
+        // ★ 标签用 [BRIDGE] 而不是 [SIDECAR]:
+        //   同一件事 SidecarClient::goOffline 已经记过一条了。两处都打
+        //   "[SIDECAR] 离线: <同一句话>" 时, 日志里会出现两条时间戳相同、
+        //   文案相同的行, 看上去像重复调用 —— 排障时白查一轮。
+        //   这里记的是"界面侧已切到不可用", 用不同标签区分开。
+        log::error(QStringLiteral("[BRIDGE] 旁路离线, 界面已切到「监控不可用」: %1")
+                       .arg(reason));
+        applyOffline(reason);
+        emit notify(QStringLiteral("warn"),
+                    QStringLiteral("监控不可用: %1").arg(reason));
+    }
+    emit sidecarStateChanged();
 }
 
     // ★ 当前**未启用**: 自研的 BPlist 解析器还没调通(Apple 这个偏好文件
@@ -471,38 +642,8 @@ void Bridge::onStateChanged(const icloud::Snapshot &s)
     //   挂回这里并接上首页那张存储卡片。
     //   现在不调用 = 不会每 3 秒读文件、不会打无意义的解析失败警告。
 
-void Bridge::onAnomaly(const QString &kind, const QString &title,
-                       const QString &detail)
-{
-    // 注意: 卡死这类异常会**每采样一次上报一次**(每 5 秒), 不是只在
-    // 出现的那一次上报。所以这里的 flag 必须在赋值前先取, 判断"是不是新异常"。
-    const bool wasAnomalous = m_anomalous;
-    const bool isNewKind = !m_anomalyList.contains(kind);
-
-    m_anomalous = true;
-    m_anomalyTitle = title;
-    m_anomalyDetail = detail;
-    if (isNewKind)
-        m_anomalyList.append(kind);
-    emit anomalyChanged();      // 明细(停滞秒数等)要跟着刷新, 每次都发
-
-    // 但弹窗只在新出现 / 换了异常种类时给。
-    // 每次都弹的话, 持续卡死状态下 Toast 动画会被每 5 秒重启一次,
-    // 既是持续打扰, 也让界面反复重绘。
-    if (!wasAnomalous || isNewKind) {
-        // 卡死 -> 走置顶浮层系统通知(跨应用可见, 见 Toast.qml);
-        // 其他异常 -> 走窗口内 Toast(notify)。两者分开, 避免一次卡死
-        // 同时弹两条。
-        if (kind == QStringLiteral("卡死")) {
-            log::userAction(QStringLiteral("卡死告警触发系统通知"),
-                            QStringLiteral("停滞 %1").arg(detail));
-            emit systemNotify(title, detail);
-        } else {
-            emit notify(QStringLiteral("warn"),
-                        QStringLiteral("[%1] %2").arg(kind, title));
-        }
-    }
-}
+// 说明: 旧的 onAnomaly / onAnomalyCleared 已删除 —— 异常判定迁到旁路,
+// 由 applyAnomalies() 统一处理(上面)。不留空壳, 避免出现"两个入口做同一件事"。
 
 void Bridge::testSystemNotification()
 {
@@ -524,7 +665,8 @@ void Bridge::refreshCategories()
 
     QElapsedTimer t;
     t.start();
-    m_categories = IcloudCategories::readAll(m_snap);
+    // 四类分类尚未迁到 Python, 见 snapshotForCategories() 的说明
+    m_categories = IcloudCategories::readAll(snapshotForCategories(m_payload));
     const qint64 ms = t.elapsed();
 
     // 只在"读得慢"时记耗时: 这段跑在 GUI 线程上, 慢了就是卡顿来源
@@ -737,83 +879,56 @@ void Bridge::setDefaultPage(const QString &p)
     emit settingsChanged();
 }
 
-void Bridge::onAnomalyCleared()
+// ── getter 实现 ───────────────────────────────────────────────────
+//
+// 全部直接读最近一帧 payload(旁路的 JSON)。旁路离线时 payload 被替换成
+// 一帧"监控不可用"(见 applyOffline), 所以这里不会出现"离线还显示旧数字"。
+// 取值小工具 jint/jbool/jstr 定义在 Bridge.h(类内 inline getter 也要用)。
+
+QString Bridge::stateName() const
 {
-    m_anomalous = false;
-    m_anomalyTitle.clear();
-    m_anomalyDetail.clear();
-    m_anomalyList.clear();
-    emit anomalyChanged();
-    emit notify(QStringLiteral("ok"), QStringLiteral("同步已恢复正常"));
+    if (!m_payload.contains(QStringLiteral("stateName")))
+        return QStringLiteral("未知");
+    return jstr(m_payload, "stateName");
 }
 
-// ── getter 实现 ───────────────────────────────────────────────────
-QString Bridge::stateName() const   { return m_snap.stateName(); }
-QString Bridge::stateDetail() const { return m_snap.stateDetail(); }
-bool    Bridge::busy() const        { return m_snap.isBusy(); }
-bool    Bridge::inSync() const      { return m_snap.inSync; }
-bool    Bridge::dbOk() const        { return m_snap.dbOk; }
-QString Bridge::clientVersion() const { return m_snap.clientVersion; }
+QString Bridge::stateDetail() const
+{
+    if (!m_payload.contains(QStringLiteral("stateDetail")))
+        return QStringLiteral("正在启动监控…");
+    return jstr(m_payload, "stateDetail");
+}
+
+bool Bridge::busy() const        { return jbool(m_payload, "busy"); }
+bool Bridge::inSync() const      { return jbool(m_payload, "inSync"); }
+bool Bridge::dbOk() const        { return jbool(m_payload, "dbOk"); }
+QString Bridge::clientVersion() const { return jstr(m_payload, "clientVersion"); }
 QString Bridge::timestamp() const
 {
-    return QDateTime::currentDateTime().toString(QStringLiteral("HH:mm:ss"));
+    const QString ts = jstr(m_payload, "timestamp");
+    return ts.isEmpty()
+        ? QDateTime::currentDateTime().toString(QStringLiteral("HH:mm:ss"))
+        : ts;
 }
 
-int Bridge::upDone() const  { return m_snap.queue.syncedUpCount; }
-int Bridge::upTotal() const
-{
-    return m_snap.queue.syncedUpCount + m_snap.queue.needUpCount;
-}
-QString Bridge::upSize() const
-{
-    return PendingModel::humanSize(m_snap.queue.needUpBytes);
-}
+int Bridge::upDone() const  { return jint(m_payload, "upDone"); }
+int Bridge::upTotal() const { return jint(m_payload, "upTotal"); }
+QString Bridge::upSize() const { return jstr(m_payload, "upSize"); }
 
-int Bridge::dlDone() const  { return m_snap.queue.downloadedCount; }
-int Bridge::dlTotal() const
-{
-    return m_snap.queue.downloadedCount + m_snap.queue.needDlCount;
-}
-QString Bridge::dlSize() const
-{
-    return PendingModel::humanSize(m_snap.queue.needDlBytes);
-}
-bool Bridge::dlBusy() const
-{
-    return m_snap.queue.needDlCount > 0 || m_snap.queue.pendingFetches > 0;
-}
+int Bridge::dlDone() const  { return jint(m_payload, "dlDone"); }
+int Bridge::dlTotal() const { return jint(m_payload, "dlTotal"); }
+QString Bridge::dlSize() const { return jstr(m_payload, "dlSize"); }
+bool Bridge::dlBusy() const { return jbool(m_payload, "dlBusy"); }
 
 QString Bridge::lastError() const
 {
-    if (!m_snap.dbOk)
-        return m_snap.dbError;
-    if (m_snap.faults > 0)
-        return QStringLiteral("故障项 %1 个").arg(m_snap.faults);
-    if (!m_snap.uploadErrors.isEmpty()) {
-        QStringList l;
-        for (const auto &p : m_snap.uploadErrors)
-            l << QStringLiteral("码%1 x%2").arg(p.first).arg(p.second);
-        return QStringLiteral("上传错误 ") + l.join(QStringLiteral(", "));
-    }
-    if (!m_snap.downloadErrors.isEmpty()) {
-        QStringList l;
-        for (const auto &p : m_snap.downloadErrors)
-            l << QStringLiteral("码%1 x%2").arg(p.first).arg(p.second);
-        return QStringLiteral("下载错误 ") + l.join(QStringLiteral(", "));
-    }
-    return QString();
+    return jstr(m_payload, "lastError");
 }
 
 QString Bridge::rankText() const
 {
-    if (!m_snap.hasRank)
-        return QStringLiteral("游标不可读");
-    return QStringLiteral("client=%1  server=%2  待应用=%3  -> %4")
-        .arg(m_snap.rankClient)
-        .arg(m_snap.rankServer)
-        .arg(m_snap.unapplied)
-        .arg(m_snap.inSync ? QStringLiteral("已追平")
-                           : QStringLiteral("追赶中"));
+    const QString t = jstr(m_payload, "rankText");
+    return t.isEmpty() ? QStringLiteral("游标不可读") : t;
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -904,13 +1019,15 @@ QString Bridge::rankText() const
 QVariantList Bridge::pcsBuckets() const
 {
     QVariantList out;
-    out.reserve(m_snap.pcsDist.size());
-    for (const PcsBucket &b : m_snap.pcsDist) {
+    const QJsonArray arr = m_payload.value(QStringLiteral("pcsBuckets")).toArray();
+    out.reserve(arr.size());
+    for (const QJsonValue &v : arr) {
+        const QJsonObject o = v.toObject();
         QVariantMap m;
-        m.insert(QStringLiteral("pcsState"), b.pcsState);
-        m.insert(QStringLiteral("count"),    b.count);
-        m.insert(QStringLiteral("bytes"),    double(b.bytes));
-        m.insert(QStringLiteral("label"),    b.label);
+        m.insert(QStringLiteral("pcsState"), o.value(QStringLiteral("pcsState")).toInt());
+        m.insert(QStringLiteral("count"),    o.value(QStringLiteral("count")).toInt());
+        m.insert(QStringLiteral("bytes"),    o.value(QStringLiteral("bytes")).toDouble());
+        m.insert(QStringLiteral("label"),    o.value(QStringLiteral("label")).toString());
         out.append(m);
     }
     return out;
@@ -922,7 +1039,7 @@ void Bridge::setRefreshSec(int s)
     if (s > 3600) s = 3600;
     m_refreshSec = s;
     log::userAction(QStringLiteral("刷新间隔 -> %1 秒").arg(s));
-    m_monitor->start(s * 1000);
+    m_sidecar->setRefreshSec(s);
     emit settingsChanged();
 }
 
@@ -932,7 +1049,9 @@ void Bridge::setStallSec(int s)
     if (s > 86400) s = 86400;
     m_stallSec = s;
     log::userAction(QStringLiteral("卡死阈值 -> %1 秒").arg(s));
-    m_monitor->setStallSeconds(s);
+    // 判定在旁路侧, 这里仅记录用于展示; 阈值随下一帧采样由旁路读取
+    // (当前实现: 旁路用自己的默认值, 见 doc/待办/01 的"阈值下发"待办)
+    m_sidecar->setSetting(QStringLiteral("ui/stallSec"), s);
     emit settingsChanged();
 }
 

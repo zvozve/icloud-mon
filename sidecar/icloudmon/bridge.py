@@ -157,6 +157,24 @@ def build(s: Snapshot, st: StallInfo, *, running: list[str] | None = None,
              "requestId": z.request_id} for z in s.active_zones
         ],
 
+        # ── 原始计数字段 ──
+        # 上面那些是"界面要的成品"(已做过取大值/换文案等加工); 这一组是**未经
+        # 加工的队列原值**, 供 C++ 侧把 payload 反填回 Snapshot 用 —— 目前只有
+        # 四类同步分类(IcloudCategories, 尚未迁到 Python)需要, 它按 Snapshot
+        # 取值。分类迁完后这组字段可以删。
+        "hasRank": s.has_rank,
+        "rankClient": s.rank_client,
+        "rankServer": s.rank_server,
+        "unapplied": s.unapplied,
+        "needUpCount": q.need_up_count,
+        "needUpBytes": q.need_up_bytes,
+        "needDlCount": q.need_dl_count,
+        "needDlBytes": q.need_dl_bytes,
+        "needDelCount": q.need_del_count,
+        "pendingFetches": q.pending_fetches,
+        "dlUnstaged": q.dl_unstaged,
+        "trashCount": s.trash_count,
+
         # iCloud 进程
         "icloudRunning": bool(proc_list),
         "icloudProcesses": ", ".join(proc_list),

@@ -3,7 +3,7 @@
 目标：数据层（取数 + 判定）迁到 Python 旁路进程，先做到**与现版本功能齐平**，
 再在其上叠加新功能。界面、托盘、通知、自启动仍在 Qt 侧，本次不动。
 
-状态：数据层骨架已落地并验证；Qt 侧接入待做。
+状态：数据层骨架已落地并验证；Qt 侧接入已完成并实机验证（2026-10-13）。
 
 ## 已完成（数据层，分支 dev）
 
@@ -23,6 +23,26 @@
 
 [x] 职责归位：iCloud 启停**暂留 C++**（原 sidecar/icloudmon/service.py 已删除）—— 两侧都是调同一个 taskkill、效果打平，而 C++ 侧已实现且踩过坑（taskkill 128 视为成功、AppsFolder 反斜杠），还能直接驱动 UI 的 busy/progress 文案。旁路收到 `icloud` 命令明确报错，避免两处各写一份
 
+## 已完成（Qt 侧接入，2026-10-13）
+
+[x] src/SidecarClient.{h,cpp} —— QProcess 拉起 serve.py、NDJSON 收发、心跳 ping + 看门狗（max(3*间隔,20)s）、指数退避重拉（1s→30s 封顶）、UTF-8 环境强制（PYTHONUTF8/PYTHONIOENCODING）、退出时 quit → stdin EOF → terminate → kill 三级礼让
+
+[x] inc/Bridge.h / src/Bridge.cpp —— 数据源从 IcloudMonitor 整体切到 SidecarClient；全部 Q_PROPERTY 改为读 payload（jint/jbool/jstr 三个辅助函数）；三个 ListModel 由 payload 数组填充，QML 绑定表达式零改动；异常分流复刻（"卡死"→系统通知，其余→Toast，仅首现/新种类弹）；离线时清空 payload 并合成一帧"监控不可用"，**不沿用旧数据**
+
+[x] 过渡桥 snapshotForCategories() —— 四类同步还没迁 Python，先把 payload 里的原始计数反填成最小 Snapshot 喂给 IcloudCategories；迁移完成后整段删除（代码里有明确标注）
+
+[x] src/IcloudSnapshot.cpp 独立成文件 —— stateName/stateDetail/isBusy 三个纯数据派生方法原来住在 IcloudMonitor.cpp，下线后 IcloudCategories 还要用，链接期缺符号才暴露"它们与 monitor 无关"；摘出来让 Snapshot 自包含
+
+[x] CMakeLists 切换 —— IcloudMonitor.cpp/.h 移出构建（文件保留作参考），SidecarClient + IcloudSnapshot 加入
+
+[x] m_wantSampling 闸门 —— 用户按过"停止"后旁路崩溃重拉不许自作主张续采
+
+[x] m_procDead 闸门 —— 进程死后 stdout 残留帧不认，防止"监控不可用"刚切过去又被一帧死后数据闪回旧状态
+
+[x] 日志标签分层 —— SidecarClient 记 [SIDECAR]（传输层事件），Bridge 记 [BRIDGE]（界面侧动作）；两处曾用同一文案打"离线"，日志里像重复调用，白查一轮
+
+[x] 实机验证（2026-10-13，win 真机）：启动 → [SIDECAR] 已启动 → [BRIDGE] 在线；kill 旁路 → 0.2s 内离线（两层日志各一条）→ 1.35s 自动重拉恢复；强杀主程序 → 旁路随 stdin EOF 自退出，无孤儿；界面截图与 probe.py 逐字段对上（已同步 / 删除 1 项 / 仅云端 194 项 260.2 MB = 272813448 B / 待处理 0+1 孤立）
+
 ## 分工（一句话）
 
 Python 采集（取数 + 判定 + 将来的网页 API）、C++ 客户端控制（iCloud 启停 + 桌面外壳 + 旁路生命周期 + 桥接）、QML 界面。
@@ -31,17 +51,11 @@ Python 采集（取数 + 判定 + 将来的网页 API）、C++ 客户端控制�
 
 ## 待办
 
-[ ] Qt 侧接入：QProcess 拉起 sidecar/serve.py，解析 NDJSON 写入 Bridge 属性；只替换 IcloudMonitor（数据源），**IcloudService 保留**（启停仍走它）
-
-[ ] 三个 QML ListModel（pendingItems / localPendings / trashItems）改为从 payload 数组填充，绑定表达式保持不变
-
-[ ] 异常分流复刻：anomalies[].kind == "卡死" 走系统通知，其余走窗口内 Toast；新种类或首次出现才弹，持续异常不重复弹
-
-[ ] 四类同步分类移植（inc/IcloudCategories.h）：云盘走 iCloudDrive.db，相册走 local.db，密码走 keychain-2.db，书签走 ChromeBookmarks.db；含启动任务注册表 State 与手动覆盖项
+[ ] 四类同步分类移植（inc/IcloudCategories.h）：云盘走 iCloudDrive.db，相册走 local.db，密码走 keychain-2.db，书签走 ChromeBookmarks.db；含启动任务注册表 State 与手动覆盖项。**移植完删掉过渡桥 snapshotForCategories()**
 
 [ ] 存储配额卡片：改用 Python plistlib 解析 iCloudWinPref.plist 的 StorageData 节点（自研 bplist 解析器在 C++ 侧没调通，Python 侧直接绕过），验证通过后接首页
 
-[ ] 双轨验证：同一时刻 probe.py 的字段值与 C++ 版界面逐项比对（至少覆盖 stateName/upCount/dlCount/delCount/rankText/cloudOnlyCount）
+[ ] 双轨验证：同一时刻 probe.py 的字段值与 C++ 版界面逐项比对（至少覆盖 stateName/upCount/dlCount/delCount/rankText/cloudOnlyCount）。2026-10-13 首页已对上一轮（见上"实机验证"），其余页面待逐页核对
 
 [ ] 历史基线一致性核对：确认 C++ 与旁路写的是同一个 icloud_state.jsonl（%APPDATA%\zvozve\iCloudMon），避免两份历史互相干扰
 
@@ -51,21 +65,21 @@ Python 采集（取数 + 判定 + 将来的网页 API）、C++ 客户端控制�
 
 [ ] 打包验证：单文件 exe 里 serve.py 能被拉起、免装 Python、无控制台窗口
 
-[ ] 旁路离线态：主程序 ping 心跳超时（3 个采样周期）判离线，界面显示"监控不可用"，**离线时禁止沿用旧数据**
+[ ] 旁路离线态 ✅（已实现：心跳 + 看门狗，离线清 payload 合成"监控不可用"帧）；剩余：验收标准里的"3 个采样周期内离线"量化核对
 
-[ ] 旁路进程生命周期：主程序退出时终止旁路并等待；拉起失败进离线态 + 退避重试（不无限刷）；stdin EOF 时旁路自退出（serve.py 已具备）
+[ ] 旁路进程生命周期 ✅（已实现并实测：quit → stdin EOF → terminate → kill；强杀主程序旁路自退出）；剩余：8 小时长跑无句柄泄漏
 
 [ ] NDJSON 协议加版本字段，主程序遇到不认识的版本直接报错而非猜
 
 [ ] 日志统一：旁路日志与 spdlog 落同一目录、同一时间戳格式、带 pid，便于跨进程对齐
 
-[ ] 切换纪律：接入完成后**一次性删除** Bridge 对 IcloudMonitor/IcloudService 的引用；禁止 C++ 与旁路长期双跑
+[ ] 切换纪律：IcloudMonitor 已移出构建 ✅；IcloudService 保留（客户端控制归 C++）。剩余：确认稳定后删除 IcloudMonitor.cpp/.h 与过渡桥
 
-[ ] 验收：连续 8 小时无僵尸进程/句柄泄漏；手动 kill 旁路 → 3 个周期内进离线态；重启旁路自动恢复；主程序退出后旁路随之消失
+[ ] 验收：连续 8 小时无僵尸进程/句柄泄漏；手动 kill 旁路 → 3 个周期内进离线态 ✅（实测 0.2s）；重启旁路自动恢复 ✅（实测 1.35s）；主程序退出后旁路随之消失 ✅（实测 stdin EOF 自退出）
 
 [ ] 确认 32 位到底是不是需求（当前 32 位很可能只是手上是 msvc2019 32 位 kit）；若不是，用 MaintenanceTool 补装 `msvc2019_64`（MSVC 64 位编译器本机已具备：VS2019 Enterprise/BuildTools 的 Hostx64/x64），CMake 换 `-A x64` 重配，Enigma VB 支持 x64
 
-[ ] 旧路径清理：确认 Qt 侧不再调用 C++ 数据源后，再决定 IcloudMonitor.cpp / IcloudService.cpp 是删除还是保留为参考（保留期间标记 deprecated）
+[ ] 旧路径清理：IcloudMonitor.cpp/.h 已移出构建（文件保留作参考，CMake 里有注释）✅；IcloudService **保留参与构建**（客户端控制归 C++）。旁路稳定运行一段时间后删除 IcloudMonitor.cpp/.h
 
 ## 决策记录
 

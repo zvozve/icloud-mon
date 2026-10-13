@@ -16,13 +16,31 @@
 
 #include "AutoStart.h"
 #include "IcloudCategories.h"
-#include "IcloudMonitor.h"
 #include "IcloudService.h"
-#include "IcloudSnapshot.h"
+#include "IcloudSnapshot.h"   // 仅用其中的 PendingItem/LocalPending/TrashItem 结构
+#include "SidecarClient.h"
 // #include "IcloudQuota.h"   // 存储卡片暂缓, 见下方 quota 属性段说明
 #include "Log.h"
 
 namespace icloud {
+
+// ── payload 取值小工具 ────────────────────────────────────────────
+// 放在头里是因为类内有若干 inline getter 也要读 payload(避免每个都写一遍
+// "value(...).toInt()")。缺字段一律回落默认值 —— 旁路离线时 payload 为空对象,
+// 界面显示 0 而不是旧数据, 这正是我们要的行为。
+inline int jint(const QJsonObject &o, const char *k)
+{
+    return o.value(QLatin1String(k)).toInt();
+}
+inline bool jbool(const QJsonObject &o, const char *k, bool def = false)
+{
+    const QJsonValue v = o.value(QLatin1String(k));
+    return v.isBool() ? v.toBool() : def;
+}
+inline QString jstr(const QJsonObject &o, const char *k)
+{
+    return o.value(QLatin1String(k)).toString();
+}
 
 // ── 待处理项列表模型 ──────────────────────────────────────────────
 class PendingModel : public QAbstractListModel
@@ -283,6 +301,13 @@ class Bridge : public QObject
     Q_PROPERTY(QString icloudProcesses READ icloudProcesses NOTIFY icloudStateChanged)
     Q_PROPERTY(bool    busyRestarting READ busyRestarting NOTIFY icloudStateChanged)
 
+    // ── 监控旁路状态 ──
+    // ★ 旁路离线时**必须**停止沿用旧数据(取数与判定在旁路里, 它挂了数据就是
+    //   不可信的)。离线期间状态区显示"监控不可用", 数字一律归零, 不再假装正常。
+    Q_PROPERTY(bool    sidecarOnline READ sidecarOnline NOTIFY sidecarStateChanged)
+    Q_PROPERTY(QString sidecarOfflineReason READ sidecarOfflineReason
+                   NOTIFY sidecarStateChanged)
+
     // ── 设置 ──
     Q_PROPERTY(bool    autoStart READ autoStart NOTIFY autoStartChanged)
     Q_PROPERTY(int     refreshSec READ refreshSec WRITE setRefreshSec
@@ -424,71 +449,47 @@ public:
 
     int     upDone() const;
     int     upTotal() const;
-    // 待上传数。
-    // ★不能只读 item_recursive_properties.needs_upload_count —— 实测该计数
-    //   在本机长期为 0/滞后(上传文件时面板纹丝不动), 不可作为实时信号。
-    //   真正实时的是 local_items 里"有本地未提交改动"的项(用户刚存盘的文件
-    //   立刻出现在那里)。两者取较大值: 哪个先动都算数, 又不会重复计数。
-    int     upCount() const
-    {
-        int n = m_snap.queue.needUpCount;
-        int localUp = 0;
-        for (const LocalPending &p : m_snap.localPendings)
-            if (p.syncUpState || p.inFlight || p.hasDiff)
-                ++localUp;
-        return qMax(n, localUp);
-    }
+    // 待上传数由旁路给出(它已经把"队列计数"与"本地未提交项"取较大值处理好,
+    // 见 sidecar/bridge.py —— needs_upload_count 实测长期为 0/滞后)。
+    int     upCount() const { return jint(m_payload, "upCount"); }
     QString upSize() const;
-    bool    upBusy() const { return upCount() > 0; }
+    bool    upBusy() const { return jbool(m_payload, "upBusy"); }
 
     int     dlDone() const;
     int     dlTotal() const;
-    int     dlCount() const { return m_snap.queue.needDlCount; }
+    int     dlCount() const { return jint(m_payload, "dlCount"); }
     QString dlSize() const;
-    int     dlPending() const { return m_snap.queue.pendingFetches; }
+    int     dlPending() const { return jint(m_payload, "dlPending"); }
     bool    dlBusy() const;
 
-    int     delDone() const  { return m_snap.trashCount; }
-    int     delCount() const { return m_snap.queue.needDelCount; }
-    int     delTotal() const { return m_snap.trashCount + m_snap.queue.needDelCount; }
-    bool    delBusy() const  { return m_snap.queue.needDelCount > 0; }
+    int     delDone() const  { return jint(m_payload, "delDone"); }
+    int     delCount() const { return jint(m_payload, "delCount"); }
+    int     delTotal() const { return jint(m_payload, "delTotal"); }
+    bool    delBusy() const  { return jbool(m_payload, "delBusy"); }
 
-    int     faults() const { return m_snap.faults; }
-    int     overQuota() const { return m_snap.overQuota; }
+    int     faults() const { return jint(m_payload, "faults"); }
+    int     overQuota() const { return jint(m_payload, "overQuota"); }
     QString lastError() const;
     QString rankText() const;
-    int     cloudOnlyCount() const { return m_snap.cloudOnlyCount; }
-    // 真·待处理项数: 只算文件确实还在磁盘上的。文件已被删、但 iCloud 状态
-    // 没清干净的(孤立记录)不计入 —— 它们并不占传输队列(need_* 全是 0),
-    // 计入 —— 它们并不占传输队列(need_* 全是 0),
-    // 计入只会让人误以为同步卡住。
-    int     pendingRealCount() const
-    {
-        int n = m_snap.pendingDirCount;
-        for (const PendingItem &it : m_snap.pendingItems)
-            if (!it.missing)
-                ++n;
-        return n;
-    }
-    // 孤立记录数(文件已删、状态未清), 界面单独标注, 不算待处理
-    int     pendingOrphanCount() const
-    {
-        int n = 0;
-        for (const PendingItem &it : m_snap.pendingItems)
-            if (it.missing)
-                ++n;
-        return n;
-    }
-    // 本地未提交项真实总数
-    int     localPendingTotal() const { return m_snap.localPendingTotal; }
+    int     cloudOnlyCount() const { return jint(m_payload, "cloudOnlyCount"); }
+    // 真·待处理项数 / 孤立记录数 / 本地未提交总数: 均由旁路算好
+    // (只算文件确实还在磁盘上的; 文件已删但状态没清的不计入待处理)
+    int     pendingRealCount() const { return jint(m_payload, "pendingRealCount"); }
+    int     pendingOrphanCount() const { return jint(m_payload, "pendingOrphanCount"); }
+    int     localPendingTotal() const { return jint(m_payload, "localPendingTotal"); }
 
     bool    icloudRunning() const { return m_icloudRunning; }
     QString icloudProcesses() const { return m_procList.join(QStringLiteral(", ")); }
     bool    busyRestarting() const { return m_restarting; }
 
+    bool    sidecarOnline() const { return m_sidecarOnline; }
+    QString sidecarOfflineReason() const { return m_sidecarOfflineReason; }
+
     bool    autoStart() const;
     int     refreshSec() const { return m_refreshSec; }
-    int     stallSec() const { return m_monitor->stallSeconds(); }
+    // 卡死阈值: 判定在旁路侧(sidecar/stall.py), 这里只保留一份数值用于展示
+    // 与下发 —— 不再从 IcloudMonitor 读。
+    int     stallSec() const { return m_stallSec; }
     bool    closeToTray() const { return m_closeToTray; }
 
     bool    anomalous() const { return m_anomalous; }
@@ -553,6 +554,7 @@ signals:
     void driveRootChanged();
     void categoriesChanged();
     void navOrderChanged();
+    void sidecarStateChanged();
     // 请求 shell 弹 Windows 系统通知(由 main.cpp 的托盘承接)。
     // 两个来源: ①刚进入卡死 ②设置页的"测试通知"按钮。
     void systemNotify(const QString &title, const QString &detail);
@@ -560,21 +562,29 @@ signals:
     void notify(const QString &kind, const QString &text);
 
 private slots:
-    void onSnapshot(const icloud::Snapshot &s);
-    void onStateChanged(const icloud::Snapshot &s);
-    void onAnomaly(const QString &kind, const QString &title,
-                   const QString &detail);
-    void onAnomalyCleared();
+    // 旁路推送的一帧完整快照(字段名与上面的 Q_PROPERTY 同名)
+    void onSidecarSnapshot(const QJsonObject &payload);
+    // 旁路上下线。离线时立刻切到"监控不可用", 并在恢复时提示
+    void onSidecarOnlineChanged(bool online, const QString &reason);
     void onIcloudFinished(bool ok, const QString &msg);
     void onIcloudProgress(const QString &msg);
     void onProcTimer();
 
 private:
-    IcloudMonitor  *m_monitor;
+    // 把 payload 里的 anomalies 数组落到 m_anomaly* 上, 并复刻原有弹窗语义
+    // (首次出现或换了种类才弹; 卡死走系统通知, 其余走窗口内 Toast)
+    void applyAnomalies(const QJsonArray &arr);
+    // 旁路离线: 清空数据 + 明确文案, 不沿用旧数据
+    void applyOffline(const QString &reason);
+
+    SidecarClient  *m_sidecar;
     IcloudService  *m_service;
     AutoStart      *m_autoStart;
 
-    Snapshot m_snap;
+    // 最近一帧快照(旁路 JSON 原样保存, getter 直接读它)
+    QJsonObject m_payload;
+    bool        m_sidecarOnline = false;
+    QString     m_sidecarOfflineReason;
     PendingModel      m_pendingModel;
     LocalPendingModel m_localModel;
     TrashModel        m_trashModel;

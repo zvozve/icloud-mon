@@ -102,7 +102,17 @@ endif()
 add_executable(iCloudMon WIN32
     src/main.cpp
     src/Bridge.cpp
-    src/IcloudMonitor.cpp
+    # 数据源已切到 Python 旁路(dev 分支): SidecarClient 拉起 sidecar/serve.py,
+    # 经 NDJSON 回传, Bridge 只读 payload。见 doc/架构边界与风险控制.md
+    src/SidecarClient.cpp
+    # Snapshot 的纯数据派生方法(stateName/stateDetail/isBusy)。本来住在
+    # IcloudMonitor.cpp 里, 但与 monitor 无关; IcloudMonitor 下线后
+    # IcloudCategories 仍要用, 因此独立成编译单元。
+    src/IcloudSnapshot.cpp
+    # ★ IcloudMonitor(C++ 直读 iCloudDrive.db)已下线 —— 它的职责整体交给
+    #   Python 旁路(谁做得更好用谁: 读 db 这件事 Python 更灵活, 且已实测 45~96ms)。
+    #   文件保留在仓库里作参考, 不再参与构建; 确认旁路稳定后即可删除。
+    # src/IcloudMonitor.cpp
     src/IcloudCategories.cpp
     # iCloud 存储配额(首页存储卡片): 解析器未调通, 暂不参与构建。
     # 代码保留, 等 BPlist 解析器验证通过后取消注释即可。
@@ -116,7 +126,9 @@ add_executable(iCloudMon WIN32
     # 放在 inc/ 下不列出来的话 moc 不会被触发, 表现为
     # "无法解析的外部符号 staticMetaObject / qt_metacall ..."。
     inc/Bridge.h
-    inc/IcloudMonitor.h
+    inc/SidecarClient.h
+    # 见上: IcloudMonitor 已下线, 头文件不再需要 moc
+    # inc/IcloudMonitor.h
     inc/IcloudCategories.h
     inc/NotificationHub.h
     inc/IcloudService.h
