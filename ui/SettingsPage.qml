@@ -386,7 +386,7 @@ Item {
             Rectangle { Layout.fillWidth: true; height: 1; color: Theme.border }
 
             // ══════════════════════════════════════════════════
-            //  卡死提醒（自绘置顶浮层，不走 Windows 通知中心）
+            //  系统通知（Windows 通知中心；窗口在前台时同步弹窗口内提醒）
             // ══════════════════════════════════════════════════
             RowLayout {
                 Layout.fillWidth: true
@@ -395,14 +395,27 @@ Item {
                     spacing: 1
                     Layout.fillWidth: true
                     Label {
-                        text: "卡死提醒"
+                        text: "系统通知"
                         color: Theme.textHi
                         font.pixelSize: Theme.fsBody
                         font.bold: true
                     }
                     Label {
-                        text: "iCloud 卡死时弹置顶提醒条，主窗口最小化或隐藏时也能看到；不依赖 Windows 通知中心"
+                        text: "iCloud 卡死时发一条 Windows 系统通知（进通知中心，"
+                              + "窗口最小化或隐藏也能收到）；窗口正好在前台时，"
+                              + "同时再弹一条窗口内提醒"
                         color: Theme.textLo
+                        font.pixelSize: Theme.fsSmall
+                        wrapMode: Text.WordWrap
+                        Layout.fillWidth: true
+                    }
+                    // 系统通知被用户在 Windows 设置里关掉时必须说出来 ——
+                    // 否则告警会"看起来发了、实际没人看见"。
+                    Label {
+                        visible: !Bridge.systemNotifyAvailable
+                        text: "⚠ 系统通知当前不可用（可能被 Windows 设置或"
+                              + "专注助手拦下）；告警将只弹窗口内提醒"
+                        color: Theme.warn
                         font.pixelSize: Theme.fsSmall
                         wrapMode: Text.WordWrap
                         Layout.fillWidth: true
@@ -412,10 +425,10 @@ Item {
                 AppButton {
                     id: testNotifyBtn
                     kind: "ghost"
-                    text: "测试提醒"
+                    text: "测试系统通知"
                     onClicked: Bridge.testSystemNotification()
                     ToolTip.visible: hovered
-                    ToolTip.text: "立即弹一条测试提醒，确认提醒条能正常显示"
+                    ToolTip.text: "立即发一条 Windows 系统通知；窗口在前台时同时弹窗口内提醒"
                     ToolTip.delay: 600
                 }
             }

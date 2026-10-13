@@ -121,7 +121,9 @@ add_executable(iCloudMon WIN32
     src/IcloudService.cpp
     src/AutoStart.cpp
     src/Log.cpp
-    src/NotificationHub.cpp
+    # Windows 系统通知(通知中心)。内部是一个专属 STA 线程 + 消息泵:
+    # Qt 的 QSystemTrayIcon::showMessage 在本机会死锁(单元不匹配), 详见 .cpp 头注释。
+    src/SystemNotifier.cpp
     # 头文件必须显式列出: AUTOMOC 只扫描 target sources 里的文件,
     # 放在 inc/ 下不列出来的话 moc 不会被触发, 表现为
     # "无法解析的外部符号 staticMetaObject / qt_metacall ..."。
@@ -130,7 +132,7 @@ add_executable(iCloudMon WIN32
     # 见上: IcloudMonitor 已下线, 头文件不再需要 moc
     # inc/IcloudMonitor.h
     inc/IcloudCategories.h
-    inc/NotificationHub.h
+    inc/SystemNotifier.h
     inc/IcloudService.h
     inc/IcloudSnapshot.h
     inc/AutoStart.h
@@ -164,6 +166,9 @@ if(WIN32)
     # main.cpp 用 RegDeleteTree/RegDeleteKey 清理旧版留下的空注册表键
     # (QSettings::clear 删不掉 org 父键), 需要 Advapi32。
     target_link_libraries(iCloudMon PRIVATE Advapi32)
+    # SystemNotifier 走 WinRT 发系统通知: RoInitialize / RoGetActivationFactory
+    # / RoActivateInstance 都在 runtimeobject.lib(Windows SDK, 不是第三方库)。
+    target_link_libraries(iCloudMon PRIVATE runtimeobject.lib)
 endif()
 
 # 32 位校验: 与 msvc2019(32bit) 套件对齐

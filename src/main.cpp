@@ -44,7 +44,7 @@
 #include <QTimer>
 
 #include "Bridge.h"
-#include "NotificationHub.h"
+#include "SystemNotifier.h"
 #include "IcloudPaths.h"
 #include "Log.h"
 
@@ -543,13 +543,21 @@ int main(int argc, char *argv[])
         qputenv("QT_QUICK_BACKEND", "software");
     }
 
-    // ★ 系统通知不再走 QSystemTrayIcon::showMessage。
-    //   实测它在本机走 WinRT Toast COM 会死锁(主线程是 MTA、Toast 需 STA,
-    //   marshaling 直接挂死) —— 点"测试通知"精确卡死在 showMessage 一句
-    //   (日志里"已投递"之前的行有、之后的行没有, 进程被强杀)。
-    //   改用自建置顶浮层 Toast.qml(见 NotificationHub + Main.qml 里的
-    //   <Toast/>): 纯 Qt Quick、绝不阻塞、且独立置顶窗口, 主窗口最小化
-    //   时也能弹出来(满足"iCloud 卡死时人在别的程序"的提醒需求)。
+    // ★ 系统通知的通道选择(记录教训, 别再走回头路):
+    //
+    //   曾经用 QSystemTrayIcon::showMessage —— 在本机**死锁**: 点"测试通知"
+    //   精确卡在那一句(日志里它之前的行有、之后的行没有, 进程只能强杀)。
+    //   Qt 在 Windows 上这条路径最终落到系统的通知通道上, 而调用线程的 COM
+    //   单元与通知通道要求的单元不一致时, 跨单元 marshal 会把调用方挂住。
+    //
+    //   于是先退成了自绘置顶浮层(Toast.qml)。但那根本不是系统通知: 不进通知
+    //   中心、错过就没了、也不像"系统在提醒你"。现改为**自建专属 STA 线程
+    //   发 WinRT Toast**(inc/SystemNotifier.h): 用 SDK 自带的 WinRT ABI 头
+    //   直接调 Toast 接口(不依赖 WRL/C++/WinRT), 线程内 RoInitialize
+    //   (SINGLE_THREADED) + 消息泵, UI 线程只入队唤醒、绝不阻塞。
+    //
+    //   实测(2026-10-13, 32 位 Release): Show() 返回 S_OK, 通知确实进了
+    //   Windows 通知中心; 本程序没有注册开始菜单快捷方式也能正常弹出。
 
     // ★ 这里必须是 QApplication(QtWidgets), 不能是 QGuiApplication。
     //
@@ -706,16 +714,22 @@ int main(int argc, char *argv[])
     engine.rootContext()->setContextProperty(
         QStringLiteral("AppVersion"), app.applicationVersion());
 
-    // 浮层通知中枢: 取代会死锁的 QSystemTrayIcon::showMessage。
-    // systemNotify(测试通知 / 卡死告警)走这里, QML 侧 Toast.qml 监听显示。
-    icloud::NotificationHub notifier;
-    engine.rootContext()->setContextProperty(
-        QStringLiteral("Notifier"), &notifier);
-    QObject::connect(
-        &bridge, &icloud::Bridge::systemNotify, &notifier,
-        [&notifier](const QString &title, const QString &detail) {
-            notifier.post(QStringLiteral("system"), title, detail);
-        });
+    // 系统通知(卡死告警 / 测试通知 / 关窗后台常驻提示)送到 Windows 通知中心。
+    // 它自带专属 STA 线程, 这里只是挂线, 不阻塞界面。
+    //
+    // ★ 声明位置在 engine **之后**: 栈对象逆序析构, 所以它会比 QML 引擎先死。
+    //   通知线程必须在 QML 树与 QApplication 收尾之前停干净 —— 退出阶段
+    //   多留一个活线程, 就是往本程序历史上那个退出段错误上再叠一层变量。
+    icloud::SystemNotifier notifier;
+    QObject::connect(&bridge, &icloud::Bridge::systemNotify, &notifier,
+                     [&notifier](const QString &title, const QString &detail) {
+                         notifier.notify(title, detail);
+                     });
+    QObject::connect(&notifier, &icloud::SystemNotifier::availabilityChanged,
+                     &bridge, &icloud::Bridge::setSystemNotifyAvailable);
+    // ★ 工作线程在"就绪"之前就已经探完通道并发过 availabilityChanged,
+    //   那一次在 connect 之前, 收不到 —— 所以这里主动同步一次当前值。
+    bridge.setSystemNotifyAvailable(notifier.available());
 
     // 注意: 这里不注入 DriveRoot —— 同步根目录可被用户修改,
     // 注入的是启动快照, 改完不会刷新。统一走 Bridge.driveRoot 属性。
@@ -769,10 +783,9 @@ int main(int argc, char *argv[])
     //    ① 常驻图标 —— 窗口关闭后(后台常驻模式)唯一的入口;
     //    ② 右键菜单: 显示主窗口 / 退出。**必须有** —— 没有它, 用户把窗口
     //       关掉后就没有任何正常途径重新打开或退出, 只能去任务管理器。
-    //  卡死告警 / 测试通知仍走自建置顶浮层 Toast.qml —— 见 NotificationHub
-    //  与 Main.qml 里的 <Toast/>。原因: 本机 QSystemTrayIcon::showMessage
-    //  走 WinRT Toast COM 会死锁(详见上方注释), 自建浮层是纯 Qt Quick、
-    //  绝不阻塞、且窗口隐藏时也能看到。
+    //  卡死告警 / 测试通知走 Windows 系统通知(通知中心), 由 SystemNotifier
+    //  在专属 STA 线程里发; 窗口在前台时 QML 再同步弹一条窗口内提醒
+    //  (见 Main.qml 的 onSystemNotify)。
     // ══════════════════════════════════════════════════════════════
     QSystemTrayIcon *tray = nullptr;
     // 菜单在 if 外声明: 下面 aboutToQuit 里要释放它(QMenu 无 QWidget 父对象
@@ -829,7 +842,9 @@ int main(int argc, char *argv[])
     // 同时伴随日志里的 "Timers cannot be stopped from another thread"。
     // 实测: 不 hide 时正常关闭窗口也会崩; hide 后就干净了。
     QObject::connect(&app, &QCoreApplication::aboutToQuit, &app,
-                     [tray, trayMenu]() {
+                     [tray, trayMenu, &notifier]() {
+        // 通知线程要先停: 之后 app 里的东西开始拆, 线程不该再碰任何 Qt 对象
+        notifier.shutdown();
         if (tray) {
             // ★ 先解除对菜单的引用再删菜单 —— 托盘内部保存着菜单裸指针,
             //   若让它析构时还指着已释放的菜单就是悬垂指针。

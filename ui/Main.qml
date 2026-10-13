@@ -99,16 +99,17 @@ ApplicationWindow {
     //    进程 —— "后台常驻"就退化成"点关闭就退出", 开关形同虚设。
     //    代价是两种情况都必须在这里**显式**处理, 不能再依赖 Qt 的默认退出。
     //
-    //  ★ 关闭时不能用窗口内的 toast 提示 —— 窗口已经隐藏, 弹给自己看没意义。
-    //    走独立置顶浮层(Notifier -> Toast.qml, 它是独立顶层窗口, 隐藏后仍可见)。
+    //  ★ 关闭时不能用窗口内的提示条提示 —— 窗口已经隐藏, 弹给自己看没意义。
+    //    走 Windows 系统通知(Bridge.notifySystem -> SystemNotifier): 窗口
+    //    隐藏/最小化时它照样出现在屏幕右下角, 并留在通知中心里。
     // ══════════════════════════════════════════════════════════════
     onClosing: function(close) {
         if (Bridge.closeToTray) {
             close.accepted = false        // 拦截本次关闭, 改为隐藏窗口
             win.hide()
-            Notifier.post("info", "iCloud 监控仍在后台运行",
-                          "窗口已关闭, 程序继续在后台监控。"
-                          + "双击托盘图标可重新打开窗口, 右键托盘图标可彻底退出。")
+            Bridge.notifySystem("iCloud 监控仍在后台运行",
+                                "窗口已关闭, 程序继续在后台监控。"
+                                + "双击托盘图标可重新打开窗口, 右键托盘图标可彻底退出。")
         } else {
             close.accepted = true
             Qt.quit()
@@ -152,13 +153,17 @@ ApplicationWindow {
         return "status"
     }
 
-    // ── Toast 状态 ──
+    // ── 窗口内提示条状态 ──
+    // 它管两件事: ①操作反馈(开关/重启/定位失败等)
+    //            ②**系统通知的窗口内同步提醒**(见下面的 onSystemNotify)
     property string toastText: ""
     property string toastKind: "info"
+    property string toastTitle: ""
 
-    function showToast(kind, text) {
+    function showToast(kind, text, title) {
         toastKind = kind
         toastText = text
+        toastTitle = title === undefined ? "" : title
         toastTimer.restart()
     }
 
@@ -167,6 +172,15 @@ ApplicationWindow {
         function onNotify(kind, text) {
             win.showToast(kind, text)
         }
+        // 系统通知(卡死告警 / 测试通知 / 关窗后台常驻提示)
+        //  ★ 窗口在前台 -> 同步再弹一条窗口内提醒: 人正看着窗口, 这条才是
+        //    一定能看见的那份(系统通知可能被"专注助手/勿扰"吞掉)。
+        //  ★ 系统通道不可用(用户在 Windows 设置里关掉了本应用的通知)
+        //    -> 无条件补弹, 否则这条告警就彻底没人看得见了。
+        function onSystemNotify(title, detail) {
+            if (win.active || !Bridge.systemNotifyAvailable)
+                win.showToast("system", detail, title)
+        }
         function onIcloudStateChanged() {
             win.ipcTimer.restart()
         }
@@ -174,8 +188,9 @@ ApplicationWindow {
 
     Timer {
         id: toastTimer
-        interval: 4000
-        onTriggered: win.toastText = ""
+        // 系统级告警停留久一点, 普通操作反馈短一点
+        interval: win.toastKind === "system" ? 8000 : 4000
+        onTriggered: { win.toastText = ""; win.toastTitle = "" }
     }
 
     Timer {
@@ -375,7 +390,12 @@ ApplicationWindow {
     }
 
     // ══════════════════════════════════════════════════════════════
-    //  Toast
+    //  窗口内提示条(操作反馈 + 系统通知的前台副本)
+    //
+    //  ★ 系统通知本体走 Windows 通知中心(见 inc/SystemNotifier.h);
+    //    这里只是"窗口正好在前台"时多弹一份 —— 那种时候人看的是窗口。
+    //    窗口隐藏或不在前台时不弹: 系统通知已经在屏幕右下角了, 再弹一份
+    //    就是同一件事说两遍。
     // ══════════════════════════════════════════════════════════════
     Rectangle {
         id: toast
@@ -425,23 +445,36 @@ ApplicationWindow {
                 color: toastKind === "error" ? Theme.err
                      : toastKind === "warn"  ? Theme.warn
                      : toastKind === "ok"    ? Theme.ok : Theme.info
+                Layout.alignment: Qt.AlignTop
+                Layout.topMargin: 5
             }
-            Label {
-                text: win.toastText
-                color: Theme.textHi
-                font.pixelSize: Theme.fsSmall
-                wrapMode: Text.WordWrap
-                Layout.maximumWidth: 320
+            // 标题(可选, 只有系统通知带) + 正文
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: 2
+
+                Label {
+                    visible: win.toastTitle !== ""
+                    text: win.toastTitle
+                    color: Theme.textHi
+                    font.pixelSize: Theme.fsSmall
+                    font.bold: true
+                    wrapMode: Text.WordWrap
+                    Layout.fillWidth: true
+                }
+                Label {
+                    text: win.toastText
+                    color: win.toastTitle !== "" ? Theme.textMid : Theme.textHi
+                    font.pixelSize: Theme.fsSmall
+                    wrapMode: Text.WordWrap
+                    Layout.fillWidth: true
+                }
             }
         }
 
         MouseArea {
             anchors.fill: parent
-            onClicked: win.toastText = ""
+            onClicked: { win.toastText = ""; win.toastTitle = "" }
         }
     }
-
-    // 置顶浮层通知窗口(测试通知 / 卡死告警)。独立于主窗口, 最小化时也能弹出。
-    // 内部监听 Notifier.requested, 取代会死锁的 QSystemTrayIcon::showMessage。
-    Toast { }
 }

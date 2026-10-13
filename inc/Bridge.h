@@ -325,6 +325,13 @@ class Bridge : public QObject
     Q_PROPERTY(QString anomalyDetail READ anomalyDetail NOTIFY anomalyChanged)
     Q_PROPERTY(QStringList anomalyList READ anomalyList NOTIFY anomalyChanged)
 
+    // ── 系统通知通道 ──
+    // 由 main.cpp 的 SystemNotifier 探测后回填(含用户在 Windows 设置里
+    // 关掉本应用通知的情况)。QML 据此决定"系统通道不可用"时是否无条件
+    // 补弸窗口内提醒 —— 否则告警就彻底没人看得见了。
+    Q_PROPERTY(bool systemNotifyAvailable READ systemNotifyAvailable
+                   NOTIFY systemNotifyAvailableChanged)
+
     // ── 云端状态分布 (给 PcsPanel 用) ──
     Q_PROPERTY(QVariantList pcsBuckets READ pcsBuckets NOTIFY snapshotChanged)
 
@@ -396,8 +403,13 @@ public:
     // 在资源管理器中打开日志目录
     Q_INVOKABLE void openLogDir();
 
-    // 设置页"测试通知": 验证系统通知到底能不能弹出来
+    // 设置页"测试系统通知": 验证 Windows 系统通知到底能不能弹出来
     Q_INVOKABLE void testSystemNotification();
+    // 发一条系统通知(进 Windows 通知中心)。QML 里唯一入口:
+    // 测试按钮与"关窗后台常驻"提示都走它, 保证只有一条实现路径。
+    // 窗口在前台时 QML 会另外同步弹一条窗口内提醒(见 Main.qml)。
+    Q_INVOKABLE void notifySystem(const QString &title, const QString &detail);
+    void setSystemNotifyAvailable(bool on);
 
     // ── 同步根目录 ──
     // 注意: 不能只靠 main.cpp 注入的 DriveRoot 上下文属性 ——
@@ -499,6 +511,8 @@ public:
     bool    closeToTray() const { return m_closeToTray; }
 
     bool    anomalous() const { return m_anomalous; }
+    // 系统通知通道是否可用(见 Q_PROPERTY 段说明)
+    bool    systemNotifyAvailable() const { return m_systemNotifyAvailable; }
     QString anomalyTitle() const { return m_anomalyTitle; }
     QString anomalyDetail() const { return m_anomalyDetail; }
     QStringList anomalyList() const { return m_anomalyList; }
@@ -563,9 +577,13 @@ signals:
     void categoriesChanged();
     void navOrderChanged();
     void sidecarStateChanged();
-    // 请求 shell 弹 Windows 系统通知(由 main.cpp 的托盘承接)。
-    // 两个来源: ①刚进入卡死 ②设置页的"测试通知"按钮。
+    // 请求发一条 Windows 系统通知。两个来源:
+    //   ① 刚进入卡死(applyAnomalies) ② 设置页的"测试系统通知"按钮 /
+    //      关窗后台常驻的提示
+    // 真正投递由 main.cpp 接到 SystemNotifier 上(专属 STA 线程), 这里是广播。
     void systemNotify(const QString &title, const QString &detail);
+    // 系统通知通道可用性变化(由 main.cpp 从 SystemNotifier 回填)
+    void systemNotifyAvailableChanged();
     // 给 QML 弹提示用
     void notify(const QString &kind, const QString &text);
 
@@ -609,6 +627,8 @@ private:
     QStringList m_procList;
 
     bool    m_anomalous = false;
+    // 系统通知通道可用性(初值 false: 未探测时宁可多弹窗口内提醒)
+    bool    m_systemNotifyAvailable = false;
     QString m_anomalyTitle;
     QString m_anomalyDetail;
     QStringList m_anomalyList;

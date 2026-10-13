@@ -609,7 +609,8 @@ void Bridge::applyAnomalies(const QJsonArray &arr)
     // Toast 动画会被反复重启, 既是持续打扰也让界面反复重绘。
     if (nowAnomalous && (!wasAnomalous || isNewKind)) {
         const QString kind = m_anomalyList.value(0);
-        // 卡死 -> 置顶浮层系统通知(跨应用可见); 其余 -> 窗口内 Toast
+        // 卡死 -> Windows 系统通知(进通知中心, 人在别的程序也能收到);
+        // 其余 -> 窗口内提示条
         if (m_anomalyList.contains(QStringLiteral("卡死"))) {
             log::userAction(QStringLiteral("卡死告警触发系统通知"),
                             QStringLiteral("停滞 %1").arg(m_anomalyDetail));
@@ -677,10 +678,25 @@ void Bridge::onSidecarOnlineChanged(bool online, const QString &reason)
 
 void Bridge::testSystemNotification()
 {
-    log::userAction(QStringLiteral("测试提醒"));
-    emit systemNotify(
+    log::userAction(QStringLiteral("测试系统通知"));
+    notifySystem(
         QStringLiteral("iCloud 状态监控"),
         QStringLiteral("测试通知: 能弹出这条说明只要 iCloud 卡死, 你就能收到提醒。"));
+}
+
+// QML 侧发系统通知的唯一入口(测试按钮 / 关窗常驻提示都走它)。
+// 只做广播: 实际投递由 main.cpp 接到 SystemNotifier(专属 STA 线程)。
+void Bridge::notifySystem(const QString &title, const QString &detail)
+{
+    emit systemNotify(title, detail);
+}
+
+void Bridge::setSystemNotifyAvailable(bool on)
+{
+    if (m_systemNotifyAvailable == on)
+        return;
+    m_systemNotifyAvailable = on;
+    emit systemNotifyAvailableChanged();
 }
 
 // ── 四类同步 ──────────────────────────────────────────────────────

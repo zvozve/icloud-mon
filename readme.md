@@ -535,26 +535,50 @@ CloseHandle(snap);
 
 ### 卡死告警要弹 Windows 系统通知
 
-窗口最小化、或在别的虚拟桌面时，界面里的 Toast 根本看不到。
-真正能提醒到人的只有系统通知。
+窗口最小化、或在别的虚拟桌面时，界面里的提示条根本看不到。
+真正能提醒到人的只有系统通知（Windows 通知中心）。
 
-- `QSystemTrayIcon::showMessage()` 是 Qt 的做法，**它属于 QtWidgets**
-  （不是 QtGui），所以 `find_package` / `target_link_libraries` 要加 `Widgets`。
-  部署代价为零 —— `windeployqt` 本来就已带 `Qt5Widgets.dll`
-  （`QtQuick.Dialogs` 依赖 `QtQuick.PrivateWidgets`）。
-- **Windows 上没有托盘图标就弹不出通知**（`Shell_NotifyIcon` 的 `NIF_INFO`
-  前提是有托盘项），所以必须建托盘。
-- 窗口图标与托盘图标由 `appIcon()` 统一从资源 `icloud.svg` 生成
-  （嵌入 exe，**不依赖外部文件**）；`QSystemTrayIcon` 没有图标时在部分
-  Windows 版本上托盘项不显示，连带 `showMessage` 也弹不出来。原先的
-  QPainter 占位云已替换为品牌图标。
-- 刻意**不建右键菜单**：`QMenu` 是控件，只有 `QGuiApplication` 时创建控件
-  是不受支持的。托盘只承担「显示通知」这一个职责。
-- 通知只在**刚进入卡死**时弹一次（`Bridge::stallAlert` 专用信号），
-  不复用 `notify` —— 后者在用户操作、其他异常时也会发，不该弹系统通知；
-  而且卡死是持续状态、每 5 秒会上报一次，不区分就会一直弹。
-- 用 `QSystemTrayIcon::isSystemTrayAvailable()` 判断，不可用时记一条警告，
-  明确告知「只会记日志、不会弹通知」，而不是静默失效。
+**走过的弯路（都别再走一遍）**：
+
+- `QSystemTrayIcon::showMessage()` 在本机**会死锁**：点「测试通知」精确卡在那一句
+  （日志里它之前的行有、之后的行没有，进程只能强杀）。它最终落到系统的通知
+  通道上，而调用线程的 COM 单元与通知通道要求的单元不一致时，跨单元 marshal
+  会把调用方挂住。
+- 退而求其次自绘过一个置顶浮层窗口（`ui/Toast.qml` + `NotificationHub`）。
+  能用，但那**不是系统通知**：不进通知中心、错过就没了，观感也不像
+  「系统在提醒你」。**已删除**。
+
+**现在的做法**：`inc/SystemNotifier.h` / `src/SystemNotifier.cpp`
+
+- 一个**专属 STA 线程**：线程内 `RoInitialize(RO_INIT_SINGLETHREADED)` +
+  消息泵（`MsgWaitForMultipleObjectsEx` 同时等「新任务事件」和「窗口消息」）。
+  UI 线程只做「入队 + `SetEvent`」，毫秒级返回，**绝不阻塞界面** ——
+  通知发不出去也不能影响监控本身。
+- 直接调 SDK 的 WinRT ABI 接口（`winrt/windows.ui.notifications.h` +
+  `windows.data.xml.dom.h`），**不依赖 WRL / C++/WinRT** —— 本机 VS2019 没装
+  `wrl/` 头，而 ABI 头再加上两个十几行的小工具（COM 指针 / HSTRING）就够。
+  链接 `runtimeobject.lib`（Windows SDK 自带，非第三方）。
+- 内容用系统模板 `ToastText02` + `CreateTextNode` 填，**不手拼 XML**
+  （`& < >` 的转义交给系统）。
+- 通知带**固定 tag**：同 tag 的新通知替换旧的。卡死是持续状态、每 5 秒上报一次，
+  不去重就会把通知中心刷成一列。
+- 用 `get_Setting()` 探测系统是否允许本应用弹通知；被关掉时置
+  `Bridge.systemNotifyAvailable=false`，设置页显式提示，并让窗口内提醒
+  **无条件补弹** —— 告警不能「看起来发了、实际没人看见」。
+- 窗口**正好在前台**时，`Main.qml` 的 `onSystemNotify` 再同步弹一条窗口内提醒
+  （人就在看窗口，这条才一定看得见）；窗口隐藏或不在前台时不弹 ——
+  系统通知已经在屏幕右下角了，再弹一份就是同一件事说两遍。
+- AUMID 用 `iCloudMon`：Windows 据此在
+  `HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\Notifications\Settings\iCloudMon`
+  建一条用户可管理的通知设置项。**不需要注册开始菜单快捷方式** ——
+  2026-10-13 实测（32 位 Release）：`Show()` 返回 `S_OK`，通知确实出现在桌面
+  右下角并进了通知中心。
+- 托盘仍然要建（窗口关闭后它是唯一入口），且**必须有右键菜单**
+  （显示主窗口 / 退出），否则关掉窗口后用户只能去任务管理器。
+
+**编译坑（值得记一笔）**：SDK 里那个常量叫 `RO_INIT_SINGLETHREADED` ——
+`SINGLE` 与 `THREADED` 之间**没有下划线**。写成 `RO_INIT_SINGLE_THREADED`
+会报「未定义标识符」，很容易误判成 `WINAPI_FAMILY` 分区问题去翻头文件。
 
 ---
 

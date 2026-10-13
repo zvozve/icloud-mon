@@ -23,8 +23,6 @@
         <file alias="qml/AppSwitch.qml">../ui/AppSwitch.qml</file>
         <file alias="qml/AppSlider.qml">../ui/AppSlider.qml</file>
         <file alias="qml/AppComboBox.qml">../ui/AppComboBox.qml</file>
-        <!-- 浮层通知(取代会死锁的 QSystemTrayIcon::showMessage) -->
-        <file alias="qml/Toast.qml">../ui/Toast.qml</file>
         <!-- 图标 -->
         <!-- 矢量, 由 qsvg 图片插件渲染。部署目录已有 qsvg.dll + Qt5Svg.dll。
              用于窗口图标 / 任务栏 / 系统托盘 / 导航栏品牌位。 -->
