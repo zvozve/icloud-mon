@@ -12,13 +12,16 @@
 #include "spdlog/sinks/stdout_color_sinks.h"
 
 #include <cstdint>
+#include <atomic>
 
 namespace icloud {
 namespace log {
 
 namespace {
 
-bool g_inited = false;
+// 日志通道是否打开。跨线程读写(SystemNotifier 的 STA 线程也写日志,
+// 而 init/shutdown 在 UI 线程), 所以用 atomic, 不做无锁假设。
+std::atomic<bool> g_inited{false};
 QString g_dir;
 
 // 同一天内日志超过这个大小就额外切一个序号文件, 防止单文件无限膨胀。
@@ -110,6 +113,11 @@ bool init()
     }
 }
 
+bool active()
+{
+    return g_inited.load(std::memory_order_relaxed);
+}
+
 void shutdown()
 {
     if (!g_inited)
@@ -118,8 +126,11 @@ void shutdown()
     // spdlog::default_logger()->flush() 与 spdlog::flush_on(level)。
     if (auto lg = spdlog::default_logger())
         lg->flush();
-    spdlog::shutdown();
+    // ★ 先置闸再销毁: spdlog::shutdown() 之后 default logger 就没了,
+    //   而调用方(main)在这之后还要析构一大堆会写日志的对象 ——
+    //   闸门不先落下, 那些日志就是往空指针上写。
     g_inited = false;
+    spdlog::shutdown();
 }
 
 QString logDir()
@@ -148,16 +159,18 @@ QString currentLogFile()
 void syncChanged(const QString &from, const QString &to,
                  const QString &detail)
 {
-    spdlog::info("[SYNC] {} -> {} | {}",
-                 utf8(from), utf8(to), utf8(detail));
+    logAt(spdlog::level::info,
+          utf8(QStringLiteral("[SYNC] %1 -> %2 | %3").arg(from, to, detail)));
 }
 
 void userAction(const QString &action, const QString &result)
 {
     if (result.isEmpty())
-        spdlog::info("[ACTION] {}", utf8(action));
+        logAt(spdlog::level::info,
+              utf8(QStringLiteral("[ACTION] %1").arg(action)));
     else
-        spdlog::info("[ACTION] {} -> {}", utf8(action), utf8(result));
+        logAt(spdlog::level::info,
+              utf8(QStringLiteral("[ACTION] %1 -> %2").arg(action, result)));
 }
 
 }  // namespace log

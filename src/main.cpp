@@ -65,9 +65,12 @@ void routeQtMessagesToLog()
 {
     qInstallMessageHandler([](QtMsgType type, const QMessageLogContext &,
                               const QString &msg) {
-        // 必须 toUtf8(): spdlog 按 UTF-8 处理, 而 Qt 消息是 QString,
-        // 直接 toStdString() 会按本地代码页(GBK) 转换, 中文全变乱码。
-        const std::string m = msg.toUtf8().toStdString();
+        // ★ 必须走 icloud::log 门面, 不能直接调 spdlog:
+        //   spdlog 的自由函数内部是 default_logger_raw()->log(...), 不判空;
+        //   而窗口销毁阶段 Qt 仍会往外吐告警(最常见的是
+        //   "Timers cannot be stopped from another thread")。那时 log 已
+        //   shutdown, 直接调 spdlog 就是往空 logger 上写, 必崩。
+        //   门面里的 utf8() 顺带保证了中文按 UTF-8 进 spdlog(不是 GBK)。
 
         static QHash<QString, qint64> lastSeen;
         static QHash<QString, int>    repeats;
@@ -85,8 +88,9 @@ void routeQtMessagesToLog()
             return;
         }
         if (repeats.value(msg) > 0) {
-            spdlog::warn("[QT] 上一条消息 10s 内重复 {} 次, 已抑制: {}",
-                         repeats.value(msg), m);
+            icloud::log::warn(
+                QStringLiteral("[QT] 上一条消息 10s 内重复 %1 次, 已抑制: %2")
+                    .arg(QString::number(repeats.value(msg)), msg));
             repeats[msg] = 0;
         }
         lastSeen[msg] = now;
@@ -94,16 +98,16 @@ void routeQtMessagesToLog()
         switch (type) {
         case QtDebugMsg:
         case QtInfoMsg:
-            spdlog::debug("[QT] {}", m);
+            icloud::log::debug(QStringLiteral("[QT] %1").arg(msg));
             break;
         case QtWarningMsg:
-            spdlog::warn("[QT] {}", m);
+            icloud::log::warn(QStringLiteral("[QT] %1").arg(msg));
             break;
         case QtCriticalMsg:
-            spdlog::error("[QT] {}", m);
+            icloud::log::error(QStringLiteral("[QT] %1").arg(msg));
             break;
         case QtFatalMsg:
-            spdlog::critical("[QT] {}", m);
+            icloud::log::critical(QStringLiteral("[QT] %1").arg(msg));
             break;
         }
     });
@@ -511,6 +515,24 @@ QString migrateLegacyUserData()
 
 int main(int argc, char *argv[])
 {
+    // ★ 关日志必须是**最后**一件事, 所以这个守卫要声明在所有人的前面。
+    //
+    //  C++ 里栈对象按声明顺序的倒序析构, 所以"最先声明"= "最后析构"。
+    //  于是 Bridge / QQmlApplicationEngine / QApplication 全部收尾完毕之后
+    //  才轮到关日志 —— 退出阶段那些日志(SidecarClient 要记 "[SIDECAR] 已退出",
+    //  位置推导/历史落盘等也都在析构路径里)才留得下来。
+    //
+    //  反过来会怎样(这就是本程序长期"退出即崩溃"的根因): 原来的写法是在
+    //  main 末尾直接 log::shutdown(), 而 `return` 之后栈对象才开始析构 ——
+    //  那些析构路径里的日志全部打在**已被 shutdown 的 spdlog** 上, 每次正常
+    //  退出都 0xC0000005, WER 在 %LOCALAPPDATA%\CrashDumps 留一个转储。
+    //  inc/Log.h 的 logAt() 闸门是兜底(静态析构、Qt 迟到消息仍可能触发),
+    //  这里才是"别让日志过早断掉"的正解。
+    struct LogShutdownGuard
+    {
+        ~LogShutdownGuard() { icloud::log::shutdown(); }
+    } logGuard;
+
     // ★ 这两个属性必须在 QGuiApplication 构造**之前**设置。
     // 原来写在构造之后 —— Qt 会忽略并只在 stderr 上警告一句, 而 GUI 程序
     // 没有控制台, 这条警告根本看不到(那时 Qt 消息处理器也还没装上)。
@@ -664,7 +686,7 @@ int main(int argc, char *argv[])
         probe.waitForBytesWritten(300);
         icloud::log::info(QStringLiteral(
             "[RUN] 检测到已有实例运行, 已请求激活它并退出本次启动"));
-        icloud::log::shutdown();
+        // 日志收尾由 main 开头的 LogShutdownGuard 统一负责, 这里直接返回
         return 0;                    // 已有实例负责显示, 本进程不建窗口
     }
     // 上次崩溃/被强杀会留下失效 socket, 不清掉 listen 会 AddressInUse 失败
@@ -745,8 +767,7 @@ int main(int argc, char *argv[])
     if (engine.rootObjects().isEmpty()) {
         icloud::log::critical(
             QStringLiteral("[RUN] QML 根对象为空, 界面加载失败"));
-        icloud::log::shutdown();
-        return 1;
+        return 1;                    // 日志收尾见 main 开头的 LogShutdownGuard
     }
 
     // 图形后端信息: 只有它出现后才能确定是不是软件渲染
@@ -864,7 +885,9 @@ int main(int argc, char *argv[])
     icloud::log::info(QStringLiteral("[RUN] 界面加载完成, 进入事件循环"));
     const int rc = app.exec();
 
+    // 这一行之后还有一堆对象的析构路径要写日志(Bridge / SidecarClient /
+    // IcloudMonitor ...), 所以**不能**在这里 log::shutdown() —— 关日志由
+    // main 开头的 LogShutdownGuard 在全部析构完成之后统一做。
     icloud::log::info(QStringLiteral("[RUN] ==== 退出 (code=%1) ====").arg(rc));
-    icloud::log::shutdown();
     return rc;
 }

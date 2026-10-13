@@ -633,11 +633,49 @@ icloudmon.exe
   拿到像素的前提；不设这个变量，场景图初始化事件不触发。
 - 产物为 `C:/tmp/shots/<页名>.png`，逐页切、逐页截，可肉眼核对布局而不必真开窗口。
 
-### 已知问题：退出段错误（code 139）
+### 退出段错误（code 139）：已定位并修复
 
-程序退出时（main 返回后的销毁阶段）偶发段错误，退出码 139。已用
-`git archive` 取 HEAD 干净树构建复现，**与本次 UI 改动无关**，属既有问题。
-自身 `[RUN] 退出` 日志已正常写出（`code=0`），不影响使用，暂不深究。
+**症状**：退出时（`main` 返回后的析构阶段）进程以 `0xC0000005` 结束，退出码 139，
+WER 在 `%LOCALAPPDATA%\CrashDumps\` 留下一个 5~8 MB 转储。用户无感 ——
+`[RUN] ==== 退出 (code=0) ====` 已写出、窗口正常关闭、日志完整刷盘。
+
+**根因**：`log::shutdown()` 调的是 `spdlog::shutdown()`，会把 default logger 一并销毁；
+而 spdlog 的自由函数（`spdlog::info/warn/...`）内部是
+`default_logger_raw()->log(...)`，**不做空指针检查**。`main()` 原来的收尾顺序恰好必然踩到：
+
+```text
+写 "[RUN] ==== 退出 (code=0) ===="  →  log::shutdown()  →  return rc
+                                                          ↑ 栈对象从这里才开始析构
+```
+
+`Bridge` / `SidecarClient` / `IcloudMonitor` 等一大批对象的析构路径里都有日志
+（例如 `SidecarClient::shutdown()` 要记 `[SIDECAR] 已退出`），于是每次正常退出都崩一次。
+
+**证据**（`CrashDumps\iCloudMon.exe.7060.dmp`）：
+
+| 项 | 值 |
+|---|---|
+| `ExceptionCode` | `0xC0000005`（访问违例） |
+| `ExceptionInformation` | `{0, 0x40}` → 读地址 `0x40`（空 `this` + 成员偏移） |
+| 出错地址 | `0x14000a178`，落在 `iCloudMon.exe` 自己的代码段 |
+| 符号化结果 | `spdlog::logger::log<std::string>` |
+| 旧 32 位转储对比 | 同 `0xC0000005`、同在 exe 内、读地址 `0x2c` → **同一个 bug，不是 Qt6/64 位迁移引入的** |
+
+**修法**（两处配合，缺一不可）：
+
+1. `main.cpp`：日志收尾交给 main 开头声明的 `LogShutdownGuard`。栈对象按声明顺序的
+   倒序析构，"最先声明" = "最后析构"，所以关日志落在所有析构之后 —— 退出阶段的日志
+   （如 `[SIDECAR] 已退出`）**照常写盘**。
+2. `inc/Log.h`：`logAt()` 是**唯一**碰 spdlog 的地方，先问 `active()`；`shutdown()`
+   先落闸再销毁 logger。闸门兜住静态析构、Qt 迟到消息这类 RAII 守卫管不到的情况 ——
+   `main.cpp` 里 Qt 消息转发原先直接调 spdlog（窗口销毁阶段 Qt 仍会吐告警），一并改走门面。
+
+**回归验证**：`ICLOUDMON_SHOT` 截图钩子跑完会自动 `quit()`，可重复触发同一条退出路径。
+
+| | 退出码 | 新增 WER 转储 | 退出阶段日志 |
+|---|---|---|---|
+| 修复前 | **139**（SIGSEGV） | 有 | 停在 `退出 (code=0)` |
+| 修复后（连跑 3 次） | **0** | 无 | 记到 `[SIDECAR] 已退出 (exit=0)` |
 
 ---
 
