@@ -45,7 +45,19 @@
 
 [ ] 打包验证：单文件 exe 里 serve.py 能被拉起、免装 Python、无控制台窗口
 
-[ ] 确认 32 位到底是不是需求（当前 32 位很可能只是手上是 msvc2019 32 位 kit）；若不是，顺手把 Qt 侧迁到 msvc2019_64 —— 换 kit 重打包即可，Enigma VB 支持 x64
+[ ] 旁路离线态：主程序 ping 心跳超时（3 个采样周期）判离线，界面显示"监控不可用"，**离线时禁止沿用旧数据**
+
+[ ] 旁路进程生命周期：主程序退出时终止旁路并等待；拉起失败进离线态 + 退避重试（不无限刷）；stdin EOF 时旁路自退出（serve.py 已具备）
+
+[ ] NDJSON 协议加版本字段，主程序遇到不认识的版本直接报错而非猜
+
+[ ] 日志统一：旁路日志与 spdlog 落同一目录、同一时间戳格式、带 pid，便于跨进程对齐
+
+[ ] 切换纪律：接入完成后**一次性删除** Bridge 对 IcloudMonitor/IcloudService 的引用；禁止 C++ 与旁路长期双跑
+
+[ ] 验收：连续 8 小时无僵尸进程/句柄泄漏；手动 kill 旁路 → 3 个周期内进离线态；重启旁路自动恢复；主程序退出后旁路随之消失
+
+[ ] 确认 32 位到底是不是需求（当前 32 位很可能只是手上是 msvc2019 32 位 kit）；若不是，用 MaintenanceTool 补装 `msvc2019_64`（MSVC 64 位编译器本机已具备：VS2019 Enterprise/BuildTools 的 Hostx64/x64），CMake 换 `-A x64` 重配，Enigma VB 支持 x64
 
 [ ] 旧路径清理：确认 Qt 侧不再调用 C++ 数据源后，再决定 IcloudMonitor.cpp / IcloudService.cpp 是删除还是保留为参考（保留期间标记 deprecated）
 
