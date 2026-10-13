@@ -4,14 +4,23 @@ project(iCloudMon VERSION 1.0.4 LANGUAGES CXX)
 # ======================================================================
 #  iCloudMon - iCloud Drive 同步状态监控器
 #
-#  构建 (MSVC 2019 32bit + Qt 5.15.2):
-#    见同目录 build.bat  (已封装 vcvars32 + cmake + ninja)
+#  构建 (MSVC 2022 64bit + Qt 6.8.3):
+#    见 packaging/package.py (编译 -> windeployqt -> Enigma 单文件)
+#    或同目录 build.bat (已封装 vcvars64 + cmake)
 #
 #  手动构建示例:
-#    call "C:\Program Files (x86)\Microsoft Visual Studio\2019\BuildTools\
-#         VC\Auxiliary\Build\vcvars32.bat"
-#    cmake -S . -B build -G Ninja -DCMAKE_PREFIX_PATH=<Qt路径> -DCMAKE_BUILD_TYPE=Release
-#    cmake --build build
+#    call "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\
+#         VC\Auxiliary\Build\vcvars64.bat"
+#    cmake -S . -B build -G "Visual Studio 17 2022" -A x64 ^
+#          -DCMAKE_PREFIX_PATH=C:/Container/System/Library/QT/6.8.3/msvc2022_64
+#    cmake --build build --config Release
+#
+#  ★ 工具链变更史(别被旧注释误导):
+#    1.0.4 及以前 = MSVC 2019 32bit + Qt 5.15.2 msvc2019。
+#    1.0.5 起    = MSVC 2022 64bit + Qt 6.8.3 msvc2022_64。
+#    32 位的旧构建目录保留在 build32/(不进版本库), 用于随时对照。
+#    Qt5 32 位套件仍留在 C:/Container/System/Library/QT/5.15.2/msvc2019,
+#    公司项目继续用它, 与本工程互不影响。
 # ======================================================================
 
 set(CMAKE_CXX_STANDARD 17)
@@ -29,18 +38,20 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
 
-# Qt 5.15 需要, 否则 QML 报 Cannot mix incompatible Qt libraries
-if(NOT DEFINED QT_HOST_PATH)
-    # 构建机路径; 同时允许外部覆盖
-    set(QT_HOST_PATH "C:/Container/System/Library/QT/5.15.2/msvc2019")
+# Qt 安装目录(默认构建机路径; 可用 -DICLOUDMON_QT_DIR=... 覆盖)
+if(NOT DEFINED ICLOUDMON_QT_DIR)
+    set(ICLOUDMON_QT_DIR "C:/Container/System/Library/QT/6.8.3/msvc2022_64")
 endif()
+list(APPEND CMAKE_PREFIX_PATH "${ICLOUDMON_QT_DIR}")
 
-find_package(Qt5 5.15 REQUIRED COMPONENTS
+find_package(Qt6 6.8 REQUIRED COMPONENTS
     Core Gui Qml Quick QuickControls2 Sql
-    # Widgets 仅用于 QSystemTrayIcon(卡死时的 Windows 系统通知)。
-    # 注意: QSystemTrayIcon 属于 QtWidgets, 不是 QtGui。
-    # 部署代价为零 —— windeployqt 本来就已带上 Qt5Widgets.dll
-    # (QtQuick.Dialogs 依赖 QtQuick.PrivateWidgets)。
+    # Widgets 用于 QSystemTrayIcon + QMenu。
+    # 注意: 别信"Qt6 把 QSystemTrayIcon 挪到 QtGui 了"的说法 —— 在 6.8 里
+    # 它仍然在 QtWidgets(include/QtWidgets/QSystemTrayIcon 实测存在),
+    # 所以 Widgets 不能去掉, 否则链接期 undefined symbol。
+    # 顺带一提 QOpenGLContext / QOpenGLFunctions 在 6.8 也仍在 QtGui,
+    # 只有 QOpenGLShaderProgram 那一批挪去了 QtOpenGL 模块。
     Widgets
 )
 
@@ -152,13 +163,13 @@ target_include_directories(iCloudMon PRIVATE
 )
 
 target_link_libraries(iCloudMon PRIVATE
-    Qt5::Core
-    Qt5::Gui
-    Qt5::Qml
-    Qt5::Quick
-    Qt5::QuickControls2
-    Qt5::Sql
-    Qt5::Widgets
+    Qt6::Core
+    Qt6::Gui
+    Qt6::Qml
+    Qt6::Quick
+    Qt6::QuickControls2
+    Qt6::Sql
+    Qt6::Widgets
     spdlog_header_only
 )
 
@@ -171,7 +182,7 @@ if(WIN32)
     target_link_libraries(iCloudMon PRIVATE runtimeobject.lib)
 endif()
 
-# 32 位校验: 与 msvc2019(32bit) 套件对齐
+# 编译选项: 与 msvc2022_64(64 位) 套件对齐
 target_compile_definitions(iCloudMon PRIVATE
     QT_NO_CAST_FROM_ASCII
     QT_NO_CAST_TO_ASCII

@@ -5,7 +5,14 @@ Windows 上 iCloud Drive（Store 版）的同步状态监控器。
 数据来源不是猜测，也不是私有 API，而是直接读 iCloud 自己的 SQLite 状态库
 `iCloudDrive.db`，所以显示的每个计数都是真实值。
 
-技术栈：Qt 5.15.2 + msvc2019 32bit + QML，第三方日志库 spdlog（源码随仓库走）。
+技术栈：Qt 6.8.3 + msvc2022 64bit + QML；数据层是内嵌的 Python 旁路
+（纯标准库，随单文件 exe 一起打包，用户无需装 Python）；第三方日志库 spdlog
+（源码随仓库走）。
+
+> 工具链变更（1.0.5）：1.0.4 及以前是 **Qt 5.15.2 msvc2019 32bit**。现在的
+> 64 位套件与公司项目仍在用的 Qt5 32 位套件**并存**于
+> `C:/Container/System/Library/QT/` 下的不同子目录，互不影响；旧的 32 位
+> 构建目录保留在 `build32/`。
 
 ---
 
@@ -128,12 +135,15 @@ icloud-mon/
 │  ├─ IcloudPaths.h       所有路径与常量的唯一来源（含四类各自的数据源）
 │  ├─ IcloudSnapshot.h    一次采样的完整数据快照
 │  ├─ IcloudCategories.h  四类同步（云盘/相册/密码/书签）状态读取
-│  ├─ IcloudMonitor.h     采样与状态机
+│  ├─ SidecarClient.h     拉起/监控 Python 旁路进程, 解析它的 NDJSON 输出
+│  ├─ SystemNotifier.h    专属 STA 线程发 WinRT 系统通知（见第八节）
 │  ├─ IcloudService.h     进程管理 / 重启 iCloud
 │  ├─ AutoStart.h         开机自启动（注册表）
 │  ├─ Log.h               spdlog 薄封装
-│  └─ Bridge.h            QML 与 C++ 的桥
+│  └─ Bridge.h            QML 与 C++ 的桥，数据全部来自旁路的 payload
 ├─ src/            实现，与 inc/ 一一对应
+│  └─ IcloudMonitor.cpp   ★ 已下线: C++ 直读 db 的旧实现, 已被 Python 旁路取代。
+│                           文件留作参考, 不参与构建, 确认旁路稳定后可删。
 ├─ ui/             QML 界面（全部平铺, 不分子目录 —— 见下方说明）
 │  ├─ Theme.qml          深色主题单例（pragma Singleton）
 │  ├─ Main.qml           外壳: 左侧导航(6 页) + 命令栏 + StackLayout
@@ -152,9 +162,19 @@ icloud-mon/
 │  └─ AlertBanner.qml    异常告警
 ├─ resources/      Qt 资源（qml 打包进 exe + qmldir）
 │  ├─ icloud.svg        iCloud 品牌图标（应用/托盘/导航栏共用, 见下方商标说明）
+├─ sidecar/        Python 旁路（数据层）：serve.py + icloudmon/ 包
+│  ├─ runtime/         开发期用的 venv（不进库, gitignore）
+│  └─ tests/           离线回归测试（如「认证不重试」）
+├─ packaging/      打包与发布
+│  ├─ package.py       一键出单文件 exe（编译→部署→内嵌旁路→打包）
+│  ├─ gen_evb.py       生成 Enigma Virtual Box 工程
+│  ├─ release.py       走 GitHub REST API 发 Release
+│  └─ RELEASE_NOTES_*.md
 ├─ third_party/
 │  └─ spdlog/      spdlog v1.14.1，仅 include/ + LICENSE
-├─ build.bat       一键构建（vcvars32 + cmake + ninja + windeployqt）
+├─ build.bat       一键构建（vcvars64 + cmake + windeployqt）
+├─ build-tools/    打包用的下载件（python-embed，不进库, gitignore）
+├─ build/          64 位构建目录（不进库）；build32/ 是切 64 位前的旧 32 位目录
 └─ CMakeLists.txt
 ```
 
@@ -210,22 +230,27 @@ QML 的**同目录类型解析**只认「导入文件所在目录」。把页面
 
 ## 四、构建
 
-环境：Qt 5.15.2 msvc2019 32bit、CMake 3.16+、Ninja、MSVC 2019。
+环境：Qt 6.8.3 msvc2022_64bit、CMake 3.16+、MSVC 2022（Build Tools 即可）。
 
 ```bat
 build.bat
 ```
 
-脚本内封装了四步：`vcvars32.bat` → `cmake` 配置 → `cmake --build` → `windeployqt`。
+脚本内封装了四步：`vcvars64.bat` → `cmake` 配置 → `cmake --build` → `windeployqt`。
 
 手动构建：
 
 ```bat
-call "C:\Program Files (x86)\Microsoft Visual Studio\2019\BuildTools\VC\Auxiliary\Build\vcvars32.bat"
-cmake -S . -B build -G Ninja ^
-      -DCMAKE_PREFIX_PATH=C:/Container/System/Library/QT/5.15.2/msvc2019 ^
-      -DCMAKE_BUILD_TYPE=Release
-cmake --build build
+call "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvars64.bat"
+cmake -S . -B build -G "Visual Studio 17 2022" -A x64 ^
+      -DCMAKE_PREFIX_PATH=C:/Container/System/Library/QT/6.8.3/msvc2022_64
+cmake --build build --config Release
+```
+
+出**单文件绿色版**（编译 → 部署 Qt → 内嵌 Python 旁路 → 压成一个 exe）：
+
+```bat
+python packaging\package.py --version 1.0.5
 ```
 
 ### 构建期几个必须注意的点
@@ -235,9 +260,12 @@ cmake --build build
 | `AUTOMOC` 只扫描 target sources 里的文件 | `inc/` 下头文件不列出来，moc 不触发，报 34 个 `staticMetaObject` / `qt_metacall` 未解析 | `add_executable` 显式列出全部 `inc/*.h` |
 | spdlog 头文件数量极多 | MSVC 报 C1128 段数过多 | 加 `/bigobj` |
 | `qt5_add_resources` 不跟踪 QML 改动 | 改了 `ui/*.qml` / `resources/*.svg` 界面，重新构建后跑出来还是旧版 —— 该命令只把 `.qrc` 当依赖，不查它引用的文件 | 删掉 `qt5_add_resources` 块，启用 `CMAKE_AUTORCC ON`：AUTORCC 会跟踪 qrc 内每个引用文件，任何 QML / svg 改动都触发重打包（用唯一探针串进 exe 可验证） |
-| `windeployqt` 5.15 不认 `--32bit` | 报 Unknown option | 用 `--release`，它自动判定位数 |
+| 生成器不能中途换 | 同一个 `build/` 目录先用 Ninja 配置过，再换 "Visual Studio 17 2022" 会被 CMake 拒绝 | 固定用 VS 生成器（与 CMakeCache 一致）；要换就删掉 `build/` |
+| `windeployqt` 必须用**同套件**的 | 拿 Qt5 的 `windeployqt` 去部署 Qt6 的 exe，报 `does not seem to be a Qt executable`；反过来会把 Qt5 DLL 拷到 Qt6 exe 旁边，启动即 `Cannot mix incompatible Qt libraries` | 构建与部署都指向同一个 kit；`package.py` 的 `DEF_QT` 与 `CMakeLists.txt` 的 `ICLOUDMON_QT_DIR` 必须一致 |
+| 环境里存在大小写重复的变量 | 同时有 `HTTP_PROXY` 和 `http_proxy` 时，MSBuild 报 `MSB6001 … Key in dictionary`（VS 安装器报 `0x80070057`），报错栈全是 .NET 内部，看不出跟环境有关 | `package.py` 的 `run()` 统一用去重后的环境启动子进程；手工构建前 `set http_proxy=` 清一个 |
 | `pragma Singleton` 必须配套 `qmldir` | QML 加载失败 | `resources/qmldir` 内容为 `singleton Theme 1.0 Theme.qml` |
 | `--qmldir=ui` 必须给 | 目录选择对话框 `QtQuick/Dialogs` 不会被部署，运行时才报缺模块 | `build.bat` 已带该参数 |
+| Qt6 的 `QtQuick.Dialogs` 与 Qt5 的 `1.3` 是两个实现 | `selectFolder` / `FileDialog.OpenDirectory` 在 Qt6 里都不存在；写错不报错，只打一条 `Unable to assign [undefined] to QQuickFileDialog::FileMode`，然后对话框按“选文件”打开 | 选目录用 **`FolderDialog`**（6.3+），取 `selectedFolder`；import 写无版本号的 `import QtQuick.Dialogs` |
 
 ### QML 侧的限制
 
@@ -359,6 +387,8 @@ QSqlQuery q(db);         // ✓ 必须把连接传进去
 
 ```bash
 grep -nE '^\s*QSqlQuery ' src/IcloudMonitor.cpp   # 逐行看，别用窄模式
+# 注: IcloudMonitor.cpp 已下线(直读 db 的职责移交 Python 旁路), 上面只是
+# 历史排错记录。同样的坑现在在 sidecar/icloudmon/snapshot.py 里。
 ```
 
 本轮就是先修了 10 处、剩这 2 处漏网，导致「修完还报同样的错」。
@@ -571,8 +601,8 @@ CloseHandle(snap);
 - AUMID 用 `iCloudMon`：Windows 据此在
   `HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\Notifications\Settings\iCloudMon`
   建一条用户可管理的通知设置项。**不需要注册开始菜单快捷方式** ——
-  2026-10-13 实测（32 位 Release）：`Show()` 返回 `S_OK`，通知确实出现在桌面
-  右下角并进了通知中心。
+  2026-10-13 实测：32 位 Release 与 64 位 Release（单文件版）两种构建下
+  `Show()` 都返回 `S_OK`，通知确实出现在桌面右下角并进了通知中心。
 - 托盘仍然要建（窗口关闭后它是唯一入口），且**必须有右键菜单**
   （显示主窗口 / 退出），否则关掉窗口后用户只能去任务管理器。
 
@@ -616,7 +646,8 @@ icloudmon.exe
 | 组件 | 版本 | 许可 | 位置 |
 |---|---|---|---|
 | spdlog | v1.14.1 | MIT | `third_party/spdlog/`（含 LICENSE） |
-| Qt | 5.15.2 | LGPL v3 / 商业 | 外部安装，不入库 |
+| Qt | 6.8.3（msvc2022_64） | LGPL v3 / 商业 | 外部安装，不入库 |
+| Python | 3.13（embeddable） | PSF | 打包时下载到 `build-tools/`，不入库 |
 | iCloud 图标 | selfhst/icloud（Iconify），官方彩色渐变 SVG | 商标归 Apple Inc. | `resources/icloud.svg`；本项目仅作只读展示用途，不修改、不重新分发变形版本 |
 
 iCloud Drive 的状态库由 Apple 创建，本项目**只读**，不修改、不上传。

@@ -173,20 +173,25 @@ void logGraphicsBackend(QQmlApplicationEngine &engine)
 
     // ★ 先立刻记下"解析到的图形后端"。这一条**不依赖场景图是否成功**,
     //   白屏/场景图初始化失败时 sceneGraphInitialized 根本不触发, 旧探针
-    //   在最需要的时候是瞎的。Qt 5.15 没有 QQuickWindow::graphicsApi(),
-    //   要经 rendererInterface() 取(拿不到就记 unknown)。
+    //   在最需要的时候是瞎的。经 rendererInterface() 取(拿不到就记 unknown)。
+    //
+    // ★ 枚举名在 Qt5 / Qt6 之间变过, 这里按 **Qt6** 写:
+    //     Qt5.15: OpenGL / Direct3D12 / OpenVG / OpenGLRhi / Direct3D11Rhi / VulkanRhi / MetalRhi / NullRhi
+    //     Qt6.8 : OpenVG / OpenGL / Direct3D11 / Vulkan / Metal / Null / Direct3D12
+    //             (且 OpenGLRhi=OpenGL、Direct3D11Rhi=Direct3D11 … 全部是**别名**)
+    //   所以不能照 Qt5 那样把 OpenGL 和 OpenGLRhi 各列一个 case —— 在 Qt6 里
+    //   它们是同一个值, MSVC 直接报 C2196 "case 值已使用"。只列 Qt6 的规范名。
     auto apiName = [](QSGRendererInterface::GraphicsApi api) -> const char * {
         switch (api) {
-        case QSGRendererInterface::Software:     return "Software(软件渲染)";
-        case QSGRendererInterface::OpenVG:       return "OpenVG";
-        case QSGRendererInterface::OpenGL:       return "OpenGL";
-        case QSGRendererInterface::OpenGLRhi:    return "OpenGLRhi";
-        case QSGRendererInterface::Direct3D11Rhi:return "Direct3D11Rhi";
-        case QSGRendererInterface::Direct3D12:   return "Direct3D12";
-        case QSGRendererInterface::VulkanRhi:    return "VulkanRhi";
-        case QSGRendererInterface::MetalRhi:     return "MetalRhi";
-        case QSGRendererInterface::NullRhi:      return "NullRhi(空)";
-        default:                                 return "Unknown";
+        case QSGRendererInterface::Software:   return "Software(软件渲染)";
+        case QSGRendererInterface::OpenVG:     return "OpenVG";
+        case QSGRendererInterface::OpenGL:     return "OpenGL";
+        case QSGRendererInterface::Direct3D11: return "Direct3D11";
+        case QSGRendererInterface::Direct3D12: return "Direct3D12";
+        case QSGRendererInterface::Vulkan:     return "Vulkan";
+        case QSGRendererInterface::Metal:      return "Metal";
+        case QSGRendererInterface::Null:       return "Null(空)";
+        default:                               return "Unknown";
         }
     };
     if (QSGRendererInterface *ri = win->rendererInterface())
@@ -237,14 +242,16 @@ void logGraphicsBackend(QQmlApplicationEngine &engine)
     });
 
     // 5 秒后**真没起来**才算异常(白屏/窗口不显示), 给可操作的后端强制开关。
+    // 环境变量按 **Qt6** 写: Qt6 用 RHI, QT_OPENGL/QT_ANGLE_PLATFORM 那套已经
+    // 没了(ANGLE 后端在 Qt6 里被移除), 现在是 QSG_RHI_BACKEND。
     QTimer::singleShot(5000, win, [win]() {
         if (win->isSceneGraphInitialized())
             return;
         icloud::log::warn(QStringLiteral(
             "[GPU] 5 秒内场景图未初始化 —— 若界面白屏/窗口不显示, "
             "多为图形后端在当前显卡/驱动上初始化失败。"
-            "可尝试用环境变量强制后端: QT_OPENGL=angle "
-            "(配 QT_ANGLE_PLATFORM=d3d11) 或 QSG_RENDER_LOOP=basic"));
+            "可尝试用环境变量强制后端: QSG_RHI_BACKEND=d3d11 "
+            "(或 opengl / software) 或 QSG_RENDER_LOOP=basic"));
     });
 }
 

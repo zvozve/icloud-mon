@@ -22,15 +22,38 @@ import re
 import shutil
 import subprocess
 import sys
+import urllib.request
+import zipfile
 from pathlib import Path
 
 # ── 默认可执行/工具路径(可用参数或环境变量覆盖) ──────────────────────
-DEF_QT = os.environ.get("QTDIR", r"C:/Container/System/Library/QT/5.15.2/msvc2019")
+# ★ Qt 路径必须与构建用的 kit 一致: 拿 Qt5 的 windeployqt 去部署 Qt6 的 exe
+#   会打印 "does not seem to be a Qt executable" 然后失败(因为 Qt5 的
+#   windeployqt 只认 Qt5 的导入表)。Qt5 32 位套件仍留在
+#   .../QT/5.15.2/msvc2019, 供公司项目使用, 本工程不用它。
+DEF_QT = os.environ.get("QTDIR", r"C:/Container/System/Library/QT/6.8.3/msvc2022_64")
 DEF_EVB = os.environ.get(
     "EVB_CONSOLE", r"C:/Program Files (x86)/Enigma Virtual Box/enigmavbconsole.exe")
-DEF_GENERATOR = ("Visual Studio 16 2019", "Win32")   # 与本仓库 build/ 现状一致
+DEF_GENERATOR = ("Visual Studio 17 2022", "x64")   # 与本仓库 build/ 现状一致
 
 ROOT = Path(__file__).resolve().parent.parent
+
+# ── 内嵌 Python 旁路运行时 ───────────────────────────────────────────
+#
+#  数据层在 Python 旁路(sidecar/serve.py), C++ 侧只用它的 JSON。旁路是
+#  **纯标准库**实现(json/os/sqlite3/winreg/ctypes/threading...), 所以内嵌
+#  python-embed 就够, 不需要 site-packages, 整体约 11 MB。
+#
+#  不内嵌的后果: 单文件 exe 找不到旁路 -> 界面一直显示"监控不可用",
+#  一个数据都取不到。所以这一步不是优化, 是"发布版能不能用"的前提。
+#
+#  部署布局(与 SidecarClient 的查找顺序对应):
+#    <exe目录>/python-embed/python.exe    ← 内嵌解释器
+#    <exe目录>/sidecar/serve.py           ← 旁路入口
+PY_EMBED_VERSION = "3.13.14"
+PY_EMBED_URL = ("https://www.python.org/ftp/python/{v}/"
+                "python-{v}-embed-amd64.zip").format(v=PY_EMBED_VERSION)
+PY_EMBED_ZIP = ROOT / "build-tools" / "python-embed-amd64.zip"
 
 
 def log(msg):
@@ -42,8 +65,32 @@ def fail(msg, code=1):
     sys.exit(code)
 
 
+def _clean_env() -> dict:
+    """返回一份"没有大小写重复键"的环境副本, 交给子进程用。
+
+    ★ Windows 的环境变量名大小写不敏感, 但**可以同时存在** HTTP_PROXY 和
+      http_proxy。MSBuild(以及 VS 安装器)内部用 .NET 的 StringDictionary
+      装载环境变量, 碰到这种重复会直接抛
+        Item has already been added. Key in dictionary: 'HTTPS_PROXY'
+         Key being added: 'https_proxy'
+      表现是莫名其妙的 MSB6001 / 0x80070057, 报告里全是 MSBuild 内部调用栈,
+      跟被编译的代码一点关系都没有 —— 极难往"环境变量"上想(踩过一次)。
+      这里统一只保留先出现的那一个, 让构建与环境无关。
+    """
+    out: dict = {}
+    seen: set = set()
+    for k, v in os.environ.items():
+        lk = k.lower()
+        if lk in seen:
+            continue
+        seen.add(lk)
+        out[k] = v
+    return out
+
+
 def run(cmd, **kw):
     log("$ " + " ".join(str(c) for c in cmd))
+    kw.setdefault("env", _clean_env())
     return subprocess.run([str(c) for c in cmd], **kw)
 
 
@@ -95,6 +142,54 @@ def find_exe(config: str) -> Path:
     fail("找不到编译产物 iCloudMon.exe(检查 build/ 目录)")
 
 
+# ── 内嵌 Python 旁路运行时 ───────────────────────────────────────────
+def ensure_python_embed() -> Path:
+    """本地没有就下载 python-embed 压缩包(约 11 MB), 返回其路径。"""
+    if PY_EMBED_ZIP.exists() and PY_EMBED_ZIP.stat().st_size > 1_000_000:
+        return PY_EMBED_ZIP
+    PY_EMBED_ZIP.parent.mkdir(parents=True, exist_ok=True)
+    log(f"下载 python-embed {PY_EMBED_VERSION}: {PY_EMBED_URL}")
+    tmp = PY_EMBED_ZIP.with_name(PY_EMBED_ZIP.name + ".part")
+    with urllib.request.urlopen(PY_EMBED_URL, timeout=180) as r, \
+            open(tmp, "wb") as f:
+        shutil.copyfileobj(r, f)
+    tmp.replace(PY_EMBED_ZIP)
+    log(f"已缓存: {PY_EMBED_ZIP} "
+        f"({PY_EMBED_ZIP.stat().st_size / 1024 / 1024:.1f} MB)")
+    return PY_EMBED_ZIP
+
+
+def stage_sidecar(exe_dir: Path) -> None:
+    """把内嵌 Python + 旁路脚本放进部署目录, 由 EVB 一起打进单文件。
+
+    放进部署目录(而不是另设目录)是刻意的: gen_evb.py 打包的就是
+    build/<Config>/ 整棵树, 放进去就自动被收走, 不需要额外登记。
+    """
+    zip_path = ensure_python_embed()
+
+    embed = exe_dir / "python-embed"
+    if embed.exists():
+        shutil.rmtree(embed)
+    with zipfile.ZipFile(zip_path) as z:
+        z.extractall(embed)
+
+    sc = exe_dir / "sidecar"
+    if sc.exists():
+        shutil.rmtree(sc)
+    (sc / "icloudmon").mkdir(parents=True)
+
+    shutil.copy2(ROOT / "sidecar" / "serve.py", sc / "serve.py")
+    # 只拷 .py: 运行时的 __pycache__ 是本地产物, 进包会带一堆无效字节码
+    n = 0
+    for p in sorted((ROOT / "sidecar" / "icloudmon").glob("*.py")):
+        shutil.copy2(p, sc / "icloudmon" / p.name)
+        n += 1
+
+    mb = sum(f.stat().st_size for f in embed.rglob("*") if f.is_file()) \
+        / 1024 / 1024
+    log(f"旁路已就位: python-embed {mb:.1f} MB + serve.py + {n} 个模块")
+
+
 # ── 部署 Qt 运行时 ───────────────────────────────────────────────────
 def deploy_qt(qt: str, exe: Path, config: str) -> None:
     windeployqt = Path(qt) / "bin" / "windeployqt.exe"
@@ -130,6 +225,8 @@ def main():
     ap.add_argument("--evb", default=DEF_EVB, help="enigmavbconsole.exe 路径")
     ap.add_argument("--config", default="Release")
     ap.add_argument("--skip-build", action="store_true", help="跳过编译/部署, 只重新打包")
+    ap.add_argument("--no-sidecar", action="store_true",
+                    help="不内嵌 Python 旁路(仅供排障: 打出来的 exe 取不到数据)")
     args = ap.parse_args()
 
     cmake = ROOT / "CMakeLists.txt"
@@ -144,6 +241,11 @@ def main():
         build(args.qt, args.config)
         exe = find_exe(args.config)
         deploy_qt(args.qt, exe, args.config)
+
+    if args.no_sidecar:
+        log("! --no-sidecar: 跳过旁路内嵌(打出来的 exe 会一直显示「监控不可用」)")
+    else:
+        stage_sidecar(exe.parent)
 
     out = pack(exe, args.evb)
     size_mb = out.stat().st_size / 1024 / 1024

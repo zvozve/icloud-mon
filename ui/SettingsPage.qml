@@ -11,7 +11,8 @@
 // ======================================================================
 import QtQuick 2.15
 import QtQuick.Controls 2.15
-import QtQuick.Dialogs 1.3
+// Qt6: 版本化写法(QtQuick.Dialogs 1.3)已不存在, 用无版本号形式
+import QtQuick.Dialogs
 import QtQuick.Layouts 1.15
 
 Item {
@@ -845,15 +846,22 @@ Item {
         }
 
         // ── 目录选择对话框 ──
-        // 注意: QtQuick.Dialogs 的 FileDialog 用 selectFolder 选目录,
-        // 没有 folderMode 属性 (那是 Qt.labs.platform 的 API, 两者不同)。
-        FileDialog {
+        // ★ Qt6 的 QtQuick.Dialogs(6.x) 是**另一个实现**, 与 Qt5 的
+        //   QtQuick.Dialogs 1.3 只有名字一样, API 完全不通用:
+        //     Qt5: FileDialog { selectFolder: true }  结果取 selectedFile
+        //     Qt6: **没有** selectFolder, FileDialog.FileMode 也只有
+        //          OpenFile/OpenFiles/SaveFile —— 选目录是**另一个类型**
+        //          FolderDialog(6.3+), 结果取 selectedFolder。
+        //   踩过的坑: 写成 fileMode: FileDialog.OpenDirectory 不会报错退出,
+        //   只打一条 "Unable to assign [undefined] to QQuickFileDialog::FileMode",
+        //   然后对话框按"选文件"模式打开 —— 界面看着正常, 功能是错的。
+        //   Qt5 的 "1.3" 版本号在 Qt6 里也不存在, 所以 import 用无版本号形式。
+        FolderDialog {
             id: driveDialog
             title: "选择 iCloud Drive 目录"
-            selectFolder: true
             // 从当前路径打开, 避免每次都从盘符根开始翻
-            folder: "file:///" + Bridge.driveRoot
-            onAccepted: Bridge.setDriveRoot(selectedFile.toString())
+            currentFolder: "file:///" + Bridge.driveRoot
+            onAccepted: Bridge.setDriveRoot(selectedFolder.toString())
         }
     }
 }
