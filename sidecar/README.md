@@ -28,6 +28,8 @@ sidecar/
   probe.py              一次性采样，验证数值用
   probe_reminders.py    待办取数探针（只读）：CalDAV / pyicloud 两条路各探一次
   requirements-reminders.txt   待办取数依赖（锁版本；装进 runtime/）
+  tests/
+    test_no_retry.py    回归：证明认证路径不会自动重试（离线桩，不联网）
   icloudmon/
     paths.py            路径与用户设置（注册表，与 QSettings NativeFormat 对齐）
     snapshot.py         复制 db+wal+shm → 只读查询 → Snapshot（14 条查询 + 派生状态）
@@ -114,14 +116,19 @@ sidecar/runtime/Scripts/python.exe sidecar/probe_reminders.py cloudkit --user yo
 | 库内有无自动重试 | 已核实：pyicloud `_authenticate` / `_srp_authentication` 单次无循环；`PCS_MAX_RETRIES=10` 只用于照片服务设备授权轮询，与登录/待办无关；caldav 的限流重试（`rate_limit_handle`）**默认关闭**；CloudKit 遇 `THROTTLED` 是**抛异常**（带 Retry-After）而非自动重试 |
 | ⚠ 别让重启变成登录 | C++ 侧对旁路进程有**自动重启退避**（1s→30s 封顶，`SidecarClient::scheduleRestart`）。认证**绝不能放在进程启动路径上** —— 否则进程每被拉起一次就是一次登录尝试。待办上线后必须：优先用会话 token **静默复用**；token 失效就标记"需重新登录"并**停止**，等用户手动操作，而不是随重启自动重登 |
 
-离线验证（2026-10-13，用桩模块冒充 caldav，不联网、不碰 Apple 端点）：
+离线验证（2026-10-13，用桩模块冒充 caldav / pyicloud，不联网、不碰 Apple 端点）：
 
 ```
-国内账号 默认               → 凭据提交 1 次
-国际账号 默认               → 凭据提交 1 次
-地区未知 默认               → 凭据提交 1 次
-国内账号 --probe-both-hosts → 凭据提交 2 次
+sidecar/runtime/Scripts/python.exe sidecar/tests/test_no_retry.py
+
+[OK ] caldav 国内 默认                       凭据提交 1 次 (期望 1)
+[OK ] caldav 国际 默认                       凭据提交 1 次 (期望 1)
+[OK ] caldav 地区未知 默认                   凭据提交 1 次 (期望 1)
+[OK ] caldav 国内 --probe-both-hosts         凭据提交 2 次 (期望 2)
+[OK ] cloudkit 默认                          凭据提交 1 次 (期望 1)
 ```
+
+这是**回归测试**，不是一次性验证：任何人往认证路径里加了重试循环，它立刻红。
 
 冒烟已验（2026-10-13）：地区探测正确；两个 CalDAV host 都通（假账号返回 401，
 预期内）；pyicloud 分支能到 Apple 的 SRP 端点并给出 "Invalid email/password"。
