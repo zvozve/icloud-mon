@@ -343,15 +343,37 @@ QML 加载失败这类只往 stderr 打的问题，关掉控制台后也能查�
 （iCloud Drive 的标志）。第二项只写日志不阻断 —— 有少量目录可能为空，
 不该因此让用户选不了。
 
+⚠ 用户选的目录在**送进校验之前**必须先规范化：QML 递进来的是
+`selectedFolder.toString()`（`file:///C:/...` 形式的 URL），直接丢给 `QDir`
+会被 `cleanPath` 收成 `file:/C:/...` 而判定不存在 —— 见
+「设置同步根目录报『目录不存在』」。规范化收口在 `paths::normalizeDriveRoot()`。
+
+⚠ 推导结果**做了缓存**，所以「无参调用」绝不能把兜底值写进缓存 —— 否则
+推导永远轮不到执行。详见同一节。
+
 **为什么不用只读的上下文属性**：`main.cpp` 原本注入过一个 `DriveRoot`
 上下文属性，那是**启动时的快照**，用户改完设置不会刷新。现已删除，
 统一走 `Bridge.driveRoot` 属性（带 `NOTIFY driveRootChanged`）。
 
 ### 目录选择对话框的 API 细节
 
-`QtQuick.Dialogs` 的 `FileDialog` 选目录用的是 **`selectFolder: true`**，
-没有 `folderMode` 属性 —— `folderMode` 是 `Qt.labs.platform` 的 API，两者不同。
-写错会在运行时报 `Cannot assign to non-existent property`。
+`QtQuick.Dialogs` 在 Qt6 是**另一个实现**，与 Qt5 同名但 API 不通用：
+
+| | Qt5（`import QtQuick.Dialogs 1.3`） | Qt6（`import QtQuick.Dialogs`） |
+|---|---|---|
+| 选目录的类型 | `FileDialog { selectFolder: true }` | **`FolderDialog`**（6.3+） |
+| 取结果 | `selectedFile` | `selectedFolder` |
+
+Qt6 的 `FileDialog` 没有 `selectFolder`，它的 `FileMode` 只有
+OpenFile/OpenFiles/SaveFile。写成 `fileMode: FileDialog.OpenDirectory`
+**不会报错退出**，只打一条
+`Unable to assign [undefined] to QQuickFileDialog::FileMode`，
+然后按「选文件」模式打开 —— 界面看着正常，功能是错的。
+
+⚠ `selectedFolder` 的类型是 **`url`**（`file:///C:/...`），**不能直接丢给
+`QDir`**；而 QML 的 `url` 值类型只暴露 `toString()`、**没有** `toLocalFile()`。
+所以「剥协议头」这件事统一放在 C++ 入口（`Bridge::setDriveRoot` →
+`paths::normalizeDriveRoot()`）做，不在 QML 里各写一份。
 
 ---
 
@@ -724,6 +746,62 @@ WER 在 `%LOCALAPPDATA%\CrashDumps\` 留下一个 5~8 MB 转储。用户无感 �
 |---|---|---|
 | 修复前（连跑 3 次） | 每次都是 2473 B（被清空重写） | 恒为 1 |
 | 修复后（连跑 3 次） | 逐次递增 | 1 → 2 → 3 |
+
+---
+
+### 设置同步根目录报「目录不存在」+ 界面根目录永远是默认值：已定位并修复
+
+**症状**（v1.0.7 之前）：界面上的同步根始终显示 `%USERPROFILE%\iCloudDrive`，
+命令栏「打开目录」报「同步根目录不存在」，在设置页里手选**明明存在**的目录
+也回「失败: 目录不存在」。日志里两条正好形成对照：
+
+```text
+17:59:11 [warning] 同步根目录不存在: C:/Users/USIDE/iCloudDrive
+17:59:21 [info] [ACTION] 设置同步根目录=file:/C:/Container/Cloud/iCloudDrive -> 失败: 目录不存在
+```
+
+**根因是两个，表现为同一个症状：**
+
+**① 根目录推导的缓存被「兜底值」污染**（这才是界面显示错路径的原因）。
+`current_drive_root()` 的优先级是
+`环境变量 > 注册表 > 数据库推导 > %USERPROFILE%\iCloudDrive`，
+第 3 条要读库、较贵，所以做了缓存。但原实现把**本轮拿到的东西无论是什么**都塞进缓存：
+
+```python
+if _derived_root_cache is None:
+    _derived_root_cache = discover_drive_root(db_path) or paths.drive_root_fallback()
+```
+
+而 `serve.py` 启动时 emit 的 `ready` 事件（以及 `bridge.build`）会**无参**调用
+`current_drive_root()` → `discover_drive_root(None)` 立刻返回 `None` →
+**兜底值被钉进缓存**。此后 `snapshot.sample()` 里那次「带着 staging 好的 db 路径」
+的调用被缓存直接短路，推导**等于从未生效**。
+修法：缓存只存「推导命中」的结果，`None` 不入缓存，留给下一次带 db 的调用再试。
+
+**② `setDriveRoot` 不剥 `file://` 协议头**（这才是报「目录不存在」的原因）。
+QML 递进来的是 `FolderDialog.selectedFolder.toString()`，即 `file:///C:/...`；
+原代码只做 `QDir::cleanPath(QDir::fromNativeSeparators(path))`，
+而 `cleanPath` 会把 `///` 收成 `/`，得到 `file:/C:/...` —— `QDir` 判定不存在。
+修法：规范化收口到 `paths::normalizeDriveRoot()`（`inc/IcloudPaths.h`），
+统一处理 `file://` URL / 原生反斜杠 / 资源管理器的成对引号 / 末尾分隔符。
+
+**验证**：规范化函数用一个**直接 include 生产头文件**的小程序测（不是复刻一份
+逻辑），并在编译时带上与生产一致的 `QT_NO_CAST_FROM_ASCII`：
+
+| 输入 | 规范化输出 |
+|---|---|
+| `file:///C:/Container/Cloud/iCloudDrive` | `C:/Container/Cloud/iCloudDrive` |
+| `file:/C:/Container/Cloud/iCloudDrive` | 同上 |
+| `C:\Container\Cloud\iCloudDrive` | 同上 |
+| `"C:\Container\Cloud\iCloudDrive"` | 同上 |
+| `C:/.../iCloudDrive/`、前后带空格、`FILE:///` | 同上 |
+
+反向对照也一并断言：**旧写法**的结果是 `file:/C:/Container/Cloud/iCloudDrive`，
+`QDir(...).exists()` 为 **false** —— 证明这些用例确实有区分度，旧代码必报错。
+
+Python 侧按 `ready → sample` 的**真实调用顺序**压测唯一入口：修复前第 4 步
+（带 db 的调用）返回兜底值，修复后第 4/5 步都拿到推导值
+`C:/Container/Cloud/iCloudDrive`。
 
 ---
 

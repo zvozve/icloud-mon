@@ -467,7 +467,12 @@ void Bridge::openSystemTrash()
 
 bool Bridge::setDriveRoot(const QString &path)
 {
-    const QString clean = QDir::cleanPath(QDir::fromNativeSeparators(path));
+    // ★ 规范化只做一次, 实现在 paths::normalizeDriveRoot()(inc/IcloudPaths.h):
+    //   QML 递进来的是 FolderDialog.selectedFolder.toString(), 即
+    //   "file:///C:/..." 形式的 URL —— 直接丢给 QDir 会被 cleanPath 收成
+    //   "file:/C:/...", 判定不存在, 用户选的目录明明是好的却报"目录不存在"
+    //   (实测就是这么来的, 日志里两次 "设置同步根目录=file:/C:/... -> 失败")。
+    const QString clean = paths::normalizeDriveRoot(path);
 
     // 先校验再存: 存一个不存在的路径进去, 之后每次打开都会失败,
     // 而用户很难想到是自己存错了路径。
@@ -531,6 +536,11 @@ void Bridge::onSidecarSnapshot(const QJsonObject &payload)
     const QString root = jstr(payload, "driveRoot");
     if (!root.isEmpty() && root != m_driveRoot) {
         m_driveRoot = root;
+        // ★ 记一行"同步根目录", 只在**变化时**记, 不刷屏。
+        //   这条线以前只有解析失败(openDriveRoot 那句 warn)才出声, 于是
+        //   "根目录解析错了、界面一直显示着兜底路径"在日志里毫无痕迹 ——
+        //   2026-10-13 那个缓存污染 bug 就是因此拖了很久才被发现。
+        log::info(QStringLiteral("[PATH] 同步根目录: %1").arg(root));
         emit driveRootChanged();
     }
 

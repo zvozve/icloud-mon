@@ -337,10 +337,22 @@ def current_drive_root(db_path: str | None = None) -> str:
     if saved:
         return str(saved).replace("\\", "/")
 
+    # ★ 缓存**只存"推导命中"的结果, 绝不缓存兜底值**。
+    #   否则第一次"无参"调用(serve.py 启动时 emit 的 ready 事件、bridge.build
+    #   里那次)会走 discover_drive_root(None) → None, 顺手把
+    #   %USERPROFILE%\iCloudDrive 钉进缓存; 之后 snapshot.sample 里那次
+    #   **带着 staging 好的 db 路径**的调用就被缓存直接短路了 —— 推导等于
+    #   从未生效, 界面/日志永远显示标准位置。
+    #   实测(2026-10-13): 本机真实根是 C:/Container/Cloud/iCloudDrive,
+    #   界面却一直显示 C:/Users/USIDE/iCloudDrive(不存在), 连带
+    #   "打开 iCloud 目录"报"不存在"、设置页选完目录也校验不过。
     global _derived_root_cache
     if _derived_root_cache is None:
-        _derived_root_cache = (discover_drive_root(db_path)
-                               or paths.drive_root_fallback())
+        derived = discover_drive_root(db_path)
+        if derived is None:
+            # miss 不进缓存: 留着让下一次带 db 的调用再试一次
+            return paths.drive_root_fallback()
+        _derived_root_cache = derived
     return _derived_root_cache
 
 

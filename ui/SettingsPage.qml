@@ -861,6 +861,11 @@ Item {
             title: "选择 iCloud Drive 目录"
             // 从当前路径打开, 避免每次都从盘符根开始翻
             currentFolder: "file:///" + Bridge.driveRoot
+            // selectedFolder 是 url, toString() 得到 "file:///C:/..."。
+            // ★ 刻意**不在这里**剥协议头: 解析 QUrl 只允许一处实现 ——
+            //   Bridge::setDriveRoot 是唯一入口, 由它负责把 file:// URL /
+            //   引号 / 分隔符统一规范化后再校验并保存。
+            //   (QML 的 url 值类型也没有 toLocalFile() 可用。)
             onAccepted: Bridge.setDriveRoot(selectedFolder.toString())
         }
     }

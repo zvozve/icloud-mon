@@ -14,6 +14,7 @@
 #include <QString>
 #include <QStringList>
 #include <QStandardPaths>
+#include <QUrl>
 
 namespace icloud {
 
@@ -67,6 +68,34 @@ inline QString driveRoot()
         return saved;
 
     return QDir::homePath() + QStringLiteral("/iCloudDrive");
+}
+
+// 把"用户给出的同步根目录"规范化成干净的本地路径。
+//
+// 设置页的 QML 递进来的是 FolderDialog.selectedFolder.toString(), 也就是
+// "file:///C:/..." 形式的 URL —— **不能直接丢给 QDir**: cleanPath 会把
+// "///" 收成 "/", 得到 "file:/C:/...", QDir 判定它不存在, 于是用户选了个
+// 完全正常的目录却被回"目录不存在"(实测踩过, 见 2026-10-13 的日志)。
+//
+// 这里统一收口(唯一实现), 兼容:
+//   · file:// URL  → 取本地路径
+//   · 原生反斜杠   → 正斜杠
+//   · 资源管理器"复制路径"带的成对引号
+//   · 末尾多余分隔符 / 重复分隔符(交给 cleanPath, 盘根除外)
+inline QString normalizeDriveRoot(const QString &raw)
+{
+    QString p = raw.trimmed();
+    if (p.size() >= 2 && p.startsWith(QLatin1Char('"'))
+        && p.endsWith(QLatin1Char('"')))
+        p = p.mid(1, p.size() - 2);
+
+    if (p.startsWith(QStringLiteral("file:"), Qt::CaseInsensitive)) {
+        const QUrl u(p);
+        const QString local = u.toLocalFile();   // 非 file 前缀走不到这里
+        p = local.isEmpty() ? u.path() : local;
+    }
+
+    return QDir::cleanPath(QDir::fromNativeSeparators(p));
 }
 
 // 用户是否显式覆盖过同步根目录(注册表里有 driveRoot 值)。
