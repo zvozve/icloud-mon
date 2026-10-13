@@ -190,20 +190,36 @@ void logGraphicsBackend(QQmlApplicationEngine &engine)
         }
     };
     if (QSGRendererInterface *ri = win->rendererInterface())
+        // fromUtf8 而不是 fromLatin1: apiName() 里那几个分支(name)是源码里的
+        // **UTF-8 中文字面量**, 按 Latin-1 解码会把"软件渲染"打成 è½¯ä»¶æ¸²æ。
         icloud::log::info(QStringLiteral("[GPU] 解析到的图形后端: %1")
-                              .arg(QString::fromLatin1(apiName(ri->graphicsApi()))));
+                              .arg(QString::fromUtf8(apiName(ri->graphicsApi()))));
     else
         icloud::log::info(QStringLiteral("[GPU] 解析到的图形后端: rendererInterface 未就绪"));
 
-    // 用一个共享标志记录场景图是否真的起来过
-    auto initialized = std::make_shared<bool>(false);
-    QObject::connect(win, &QQuickWindow::sceneGraphInitialized, win,
-                     [initialized]() { *initialized = true; });
+    // ★ 判"场景图有没有起来"用 isSceneGraphInitialized() 直接查, **不靠信号**。
+    //
+    //   踩过的坑: 原来只 connect(sceneGraphInitialized) 再等 5 秒看标志位, 结果
+    //   **必然误报**。原因: 本函数在 engine.load() 之后才被调用, 而 Main.qml 的
+    //   ApplicationWindow 是 visible: true —— load 期间窗口就已 show 并完成首次
+    //   渲染, 这个**一次性**信号在那一刻就发过了; 之后才 connect 的永远收不到,
+    //   标志位恒为 false, 5 秒后必然打出"未初始化"。实测 10-10 / 10-12 / 10-13
+    //   三次运行全部误报, 而界面其实是正常的(日志里连下面那条 GL 信息都没有,
+    //   恰好印证信号从没被收到过)。
+    //   isSceneGraphInitialized() 是 Qt 5.15 的 public API(qquickwindow.h:188),
+    //   读的是真实状态, 与 connect 时机无关。
+    if (win->isSceneGraphInitialized())
+        icloud::log::info(QStringLiteral("[GPU] 场景图已初始化(无需等待)"));
+    else
+        icloud::log::info(QStringLiteral("[GPU] 图形后端探针已挂载, 等待首次渲染"));
 
-    QObject::connect(win, &QQuickWindow::sceneGraphInitialized, win, []() {        QOpenGLContext *ctx = QOpenGLContext::currentContext();
+    // 信号仍然挂着: 它真触发时顺手把 GL 信息打出来(只有 OpenGL/硬件后端才有)。
+    QObject::connect(win, &QQuickWindow::sceneGraphInitialized, win, []() {
+        QOpenGLContext *ctx = QOpenGLContext::currentContext();
         if (!ctx) {
-            icloud::log::warn(QStringLiteral(
-                "[GPU] 无当前 OpenGL 上下文 (可能不是 OpenGL 后端)"));
+            // 软件渲染后端正常走这里 —— 这不是错误, 别用 warn 刷屏。
+            icloud::log::info(QStringLiteral(
+                "[GPU] 场景图已初始化(软件渲染后端, 无 OpenGL 上下文)"));
             return;
         }
         QOpenGLFunctions *f = ctx->functions();
@@ -219,18 +235,16 @@ void logGraphicsBackend(QQmlApplicationEngine &engine)
         icloud::log::info(QStringLiteral("[GPU] version=%1")
                               .arg(glStr(GL_VERSION)));
     });
-    icloud::log::info(QStringLiteral("[GPU] 图形后端探针已挂载, 等待首次渲染"));
 
-    // 若 5 秒场景图还没初始化, 基本可断定没起来(白屏/窗口不显示)。
-    // 给出可操作的后端强制开关, 比让用户干瞪眼强。
-    QTimer::singleShot(5000, win, [initialized]() {
-        if (!*initialized) {
-            icloud::log::warn(QStringLiteral(
-                "[GPU] 5 秒内场景图未初始化 —— 若界面白屏/窗口不显示, "
-                "多为图形后端在当前显卡/驱动上初始化失败。"
-                "可尝试用环境变量强制后端: QT_OPENGL=angle "
-                "(配 QT_ANGLE_PLATFORM=d3d11) 或 QSG_RENDER_LOOP=basic"));
-        }
+    // 5 秒后**真没起来**才算异常(白屏/窗口不显示), 给可操作的后端强制开关。
+    QTimer::singleShot(5000, win, [win]() {
+        if (win->isSceneGraphInitialized())
+            return;
+        icloud::log::warn(QStringLiteral(
+            "[GPU] 5 秒内场景图未初始化 —— 若界面白屏/窗口不显示, "
+            "多为图形后端在当前显卡/驱动上初始化失败。"
+            "可尝试用环境变量强制后端: QT_OPENGL=angle "
+            "(配 QT_ANGLE_PLATFORM=d3d11) 或 QSG_RENDER_LOOP=basic"));
     });
 }
 

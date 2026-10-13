@@ -677,7 +677,7 @@ void Bridge::onSidecarOnlineChanged(bool online, const QString &reason)
 
 void Bridge::testSystemNotification()
 {
-    log::userAction(QStringLiteral("测试系统通知"));
+    log::userAction(QStringLiteral("测试提醒"));
     emit systemNotify(
         QStringLiteral("iCloud 状态监控"),
         QStringLiteral("测试通知: 能弹出这条说明只要 iCloud 卡死, 你就能收到提醒。"));

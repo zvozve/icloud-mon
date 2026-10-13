@@ -386,7 +386,7 @@ Item {
             Rectangle { Layout.fillWidth: true; height: 1; color: Theme.border }
 
             // ══════════════════════════════════════════════════
-            //  系统通知
+            //  卡死提醒（自绘置顶浮层，不走 Windows 通知中心）
             // ══════════════════════════════════════════════════
             RowLayout {
                 Layout.fillWidth: true
@@ -395,13 +395,13 @@ Item {
                     spacing: 1
                     Layout.fillWidth: true
                     Label {
-                        text: "系统通知"
+                        text: "卡死提醒"
                         color: Theme.textHi
                         font.pixelSize: Theme.fsBody
                         font.bold: true
                     }
                     Label {
-                        text: "iCloud 卡死时弹 Windows 通知，窗口最小化也能收到"
+                        text: "iCloud 卡死时弹置顶提醒条，主窗口最小化或隐藏时也能看到；不依赖 Windows 通知中心"
                         color: Theme.textLo
                         font.pixelSize: Theme.fsSmall
                         wrapMode: Text.WordWrap
@@ -412,10 +412,10 @@ Item {
                 AppButton {
                     id: testNotifyBtn
                     kind: "ghost"
-                    text: "测试通知"
+                    text: "测试提醒"
                     onClicked: Bridge.testSystemNotification()
                     ToolTip.visible: hovered
-                    ToolTip.text: "立即弹一条测试通知，确认系统通知是否正常"
+                    ToolTip.text: "立即弹一条测试提醒，确认提醒条能正常显示"
                     ToolTip.delay: 600
                 }
             }
