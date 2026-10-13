@@ -250,7 +250,7 @@ cmake --build build --config Release
 出**单文件绿色版**（编译 → 部署 Qt → 内嵌 Python 旁路 → 压成一个 exe）：
 
 ```bat
-python packaging\package.py --version 1.0.5
+python packaging\package.py --version 1.0.6
 ```
 
 ### 构建期几个必须注意的点
@@ -287,8 +287,8 @@ build\Release\log\icloudmon_2026-10-09
 | 项 | 值 |
 |---|---|
 | 切分时间 | 每天 23:59 换日 |
-| 保留 | 最近 30 天 |
-| 单文件上限 | 20 MB，超出再切 |
+| 保留 | 最近 30 天（换日时自动删除更早的） |
+| 写入模式 | **追加**（重启后仍能看到上一次运行的日志） |
 | 编码 | UTF-8（中文必须走 `toUtf8()`，用 `toStdString()` 会按 GBK 转成乱码） |
 | 模式 | header-only，静态编译进 exe，无额外 DLL |
 
@@ -676,6 +676,42 @@ WER 在 `%LOCALAPPDATA%\CrashDumps\` 留下一个 5~8 MB 转储。用户无感 �
 |---|---|---|---|
 | 修复前 | **139**（SIGSEGV） | 有 | 停在 `退出 (code=0)` |
 | 修复后（连跑 3 次） | **0** | 无 | 记到 `[SIDECAR] 已退出 (exit=0)` |
+
+---
+
+### 日志每次启动被清空 + 30 天保留失效：已定位并修复
+
+**症状**（v1.0.6 之前）：同一天内重启程序，`log\icloudmon_<日期>` 被清空重写，
+**上一次运行的日志直接消失**；同时文档里写的「保留最近 30 天」从未生效，
+旧的日切文件会一直堆在 `log\` 下无人清理。
+
+**根因**：`spdlog::sinks::daily_file_sink_mt` 的真实签名是
+
+```text
+(文件名, 小时, 分钟, truncate, max_files, file_event_handlers)
+```
+
+第 4 个参数是 **`bool truncate`**，不是 `max_files`。原代码按
+`(base, 23, 59, kMaxFiles, kMaxSizePerDay)` 的顺序传，参数整体错位一格：
+
+| 传入 | 落到的形参 | 实际效果 |
+|---|---|---|
+| `kMaxFiles` = 30 | `bool truncate` | `30 != 0` → **true，每次启动截断** |
+| `kMaxSizePerDay` = 20971520 | `uint16_t max_files` | 20971520 % 65536 = **0 → 从不清理** |
+
+「追加写」与「保留 30 天」两个目的**一个都没达成**；而这两个参数传错不会报错
+（`bool` 能吃任何整数、`uint16_t` 只是静默窄化），所以长期没被发现。
+
+**修法**：按真实签名传 `(base, 23, 59, /*truncate=*/false, kMaxFiles)`。
+另外 `daily_file_sink` **只能按时间切**，没有按大小切的能力，原注释里
+「单日超 20 MB 再切」本就无法实现，已连同 `kMaxSizePerDay` 一起去掉，文档同步更正。
+
+**验证**：连跑 3 次，日志文件逐次**变长**（追加生效），启动记录条数递增，不再被清空。
+
+| | 文件大小 | 启动记录条数 |
+|---|---|---|
+| 修复前（连跑 3 次） | 每次都是 2473 B（被清空重写） | 恒为 1 |
+| 修复后（连跑 3 次） | 逐次递增 | 1 → 2 → 3 |
 
 ---
 

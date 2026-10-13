@@ -24,9 +24,6 @@ namespace {
 std::atomic<bool> g_inited{false};
 QString g_dir;
 
-// 同一天内日志超过这个大小就额外切一个序号文件, 防止单文件无限膨胀。
-// 一天正常采样(5s 一次)约 1~2MB, 20MB 足够宽松。
-constexpr std::size_t kMaxSizePerDay = 20 * 1024 * 1024;
 // 保留最近 30 天。注意类型: daily_file_sink 的 max_files 是 uint16_t,
 // 用 int 传会触发窄化转换。
 constexpr std::uint16_t kMaxFiles = 30;
@@ -82,11 +79,18 @@ bool init()
         auto console = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
         console->set_level(spdlog::level::warn);
 
-        // 按天切分(23:59 换日), 保留最近 30 天, 单日超 20MB 再切
-        // 签名: (文件名, 小时, 分钟, max_files, rotation_size, handlers)
-        // 最后那个是 file_event_handlers, 不是 bool —— 传错会编译失败。
+        // 按天切分(23:59 换日), 保留最近 30 天。
+        // ★ spdlog 1.14 的真实签名是
+        //   (文件名, 小时, 分钟, truncate, max_files, file_event_handlers)
+        //   —— 第 4 个参数是 **bool truncate**, 不是 max_files。
+        //   老代码按 (..., max_files, rotation_size) 的顺序传, 于是:
+        //     truncate  = 30        -> true, 每次启动把当天日志清空;
+        //     max_files = 20971520  -> 窄化成 uint16_t 后为 0, 30 天保留失效。
+        //   即注释声称的两件事一个都没做到, 反而丢掉重启前的诊断信息。
+        //   现按真实签名传, 并把无法实现的"按大小切"说法去掉 ——
+        //   daily_file_sink 只能按时间切, 没有按大小切的能力。
         auto file = std::make_shared<spdlog::sinks::daily_file_sink_mt>(
-            base, 23, 59, kMaxFiles, kMaxSizePerDay);
+            base, 23, 59, /*truncate=*/false, kMaxFiles);
         file->set_level(spdlog::level::trace);
 
         // third arg = 自动 flush(级别)
