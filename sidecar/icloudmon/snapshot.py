@@ -7,6 +7,7 @@
 # ======================================================================
 from __future__ import annotations
 
+import atexit
 import os
 import shutil
 import sqlite3
@@ -176,14 +177,71 @@ class Snapshot:
 
 
 # ── 数据库 staging: 复制 db + wal + shm 到临时目录 ──────────────────
+#
+#  ★ 这里**必须**配清理, 否则每次启动都在 %TEMP% 留一个 ~18MB 的目录
+#    (16MB 是 iCloudDrive.db-wal), 攒起来能到几百 MB。
+#    两个清理口缺一不可:
+#      · _purge_stage_dir  —— 正常退出(atexit)删掉本次的;
+#      · _sweep_stale_stage_dirs —— 被 kill / 崩溃 时跑不到 atexit,
+#        由下一次启动把上次留下的扫掉。
+#    C++ 侧的 watchdog 确实会 kill 旁路再重拉(见 SidecarClient::onHeartbeat),
+#    所以第二条不是"以防万一", 是会被走到的常规路径。
 _STAGE_DIR: str | None = None
+
+# "多久没动过"就认定为死进程遗留。活着的实例每采样一次都会重建 db 文件
+# (先 unlink 再 copy2), 目录 mtime 随之刷新, 所以久未更新 = 没有进程在用。
+# 不用更短的阈值: 采样被 stop 后目录不再刷新, 阈值太短会误删活实例的。
+_STALE_STAGE_SEC = 6 * 3600
+
+
+def _purge_stage_dir() -> None:
+    """删掉本进程的 staging 目录并清空缓存。atexit 调用, 必须幂等。"""
+    global _STAGE_DIR
+    if _STAGE_DIR:
+        shutil.rmtree(_STAGE_DIR, ignore_errors=True)
+        _STAGE_DIR = None
+
+
+def _sweep_stale_stage_dirs() -> int:
+    """清掉上次被强杀留下的 staging 目录, 返回清掉的个数。
+
+    两道闸, 宁可漏删也不误删:
+      1. 目录里必须有 iCloudDrive.db —— 只认我们自己的布局;
+      2. 必须足够旧 —— 活实例的目录 mtime 一直在刷新。
+    """
+    tmp = tempfile.gettempdir()
+    now = time.time()
+    removed = 0
+    try:
+        entries = os.listdir(tmp)
+    except OSError:
+        return 0
+    for name in entries:
+        if not name.startswith("icloudmon-"):
+            continue
+        path = os.path.join(tmp, name)
+        if not os.path.isfile(os.path.join(path, "iCloudDrive.db")):
+            continue
+        try:
+            if now - os.path.getmtime(path) < _STALE_STAGE_SEC:
+                continue
+        except OSError:
+            continue
+        shutil.rmtree(path, ignore_errors=True)
+        removed += 1
+    return removed
 
 
 def _stage_dir() -> str:
     """进程级临时目录, 随进程退出清理 —— 与 C++ stageDatabase 一致。"""
     global _STAGE_DIR
+    # 被 sweep 或外部清理掉了就重建, 不能让后面的 copy 落到不存在的目录
+    if _STAGE_DIR is not None and not os.path.isdir(_STAGE_DIR):
+        _STAGE_DIR = None
     if _STAGE_DIR is None:
+        _sweep_stale_stage_dirs()
         _STAGE_DIR = tempfile.mkdtemp(prefix="icloudmon-")
+        atexit.register(_purge_stage_dir)
     return _STAGE_DIR
 
 

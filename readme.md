@@ -125,6 +125,18 @@ iCloudDrive.db-shm      ← 漏了这个 WAL 模式打不开
 
 只拷贝 `.db` 是不够的，这是最容易踩的坑。
 
+**★ 这个临时目录用完必须删**（`sidecar/icloudmon/snapshot.py`）。它一个约 18 MB
+（16 MB 是 `-wal`），只建不删的话每次启动都会在 `%TEMP%` 留一个，攒起来能到几百 MB。
+两个清理口缺一不可：
+
+| 清理口 | 覆盖的退出方式 |
+|---|---|
+| `_purge_stage_dir`（`atexit`） | 正常退出 —— 主程序 `closeWriteChannel()` 让旁路读到 stdin EOF 后自行退出 |
+| `_sweep_stale_stage_dirs`（下次启动时） | 被 **kill** —— C++ 侧 watchdog 判定旁路无响应时会直接 kill 再重拉，这条路跑不到 `atexit` |
+
+sweep 有两道闸，宁可漏删也不误删：① 目录里必须有 `iCloudDrive.db`（只认自己的布局）；
+② 目录 mtime 必须超过 6 小时未刷新（活实例每采样一次就重建 db 文件、目录 mtime 跟着变）。
+
 ---
 
 ## 三、目录结构
@@ -250,7 +262,7 @@ cmake --build build --config Release
 出**单文件绿色版**（编译 → 部署 Qt → 内嵌 Python 旁路 → 压成一个 exe）：
 
 ```bat
-python packaging\package.py --version 1.0.6
+python packaging\package.py --version 1.0.7
 ```
 
 ### 构建期几个必须注意的点
