@@ -402,12 +402,18 @@ public:
     // ── 同步根目录 ──
     // 注意: 不能只靠 main.cpp 注入的 DriveRoot 上下文属性 ——
     // 那是启动时的快照, 用户改了之后不会变。必须走这个属性。
+    // 值优先取旁路下发的 driveRoot(它按 env>注册表>数据库推导 解析,
+    // 见 sidecar/icloudmon/snapshot.py 的 current_drive_root), 旁路离线
+    // 时退回 C++ 侧 IcloudPaths 的兜底(driveRootIsCustom 判断同理)。
     Q_PROPERTY(QString driveRoot READ driveRoot NOTIFY driveRootChanged)
+    // 用户是否显式覆盖过根目录(注册表里有 driveRoot)。设置页的「默认」
+    // 按钮据此显隐 —— 以前是拿路径去比硬编码字符串, 硬编码已删。
+    Q_PROPERTY(bool driveRootIsCustom READ driveRootIsCustom NOTIFY driveRootChanged)
     // 在资源管理器中打开 iCloud Drive 同步根目录
     Q_INVOKABLE void openDriveRoot();
     // 设置同步根目录 (写入注册表), 失败返回 false
     Q_INVOKABLE bool setDriveRoot(const QString &path);
-    // 恢复内置默认路径
+    // 恢复默认路径(清掉注册表覆盖值, 回到数据库推导/标准安装位置)
     Q_INVOKABLE void resetDriveRoot();
 
     // ── 四类同步 (云盘/相册/密码/书签) ──
@@ -535,8 +541,10 @@ public:
     // 日志路径(供设置页展示)
     QString logDir() const { return log::logDir(); }
     QString logFile() const { return log::currentLogFile(); }
-    // 同步根目录(可被用户改, 所以每次读都回 IcloudPaths 取当前值)
+    // 同步根目录(可被用户改, 所以每次读都取当前值: 先旁路 payload, 后兜底)
     QString driveRoot() const;
+    // 用户是否显式覆盖过根目录
+    bool    driveRootIsCustom() const;
 
     QVariantList categories() const;
     QStringList  navOrder() const { return m_navOrder; }
@@ -585,6 +593,9 @@ private:
     QJsonObject m_payload;
     bool        m_sidecarOnline = false;
     QString     m_sidecarOfflineReason;
+    // 最近一次从旁路收到的同步根目录。单独存、**不随 m_payload 清空** ——
+    // 根目录是配置而非同步数据, 旁路离线时不该退回错误路径。
+    QString     m_driveRoot;
     PendingModel      m_pendingModel;
     LocalPendingModel m_localModel;
     TrashModel        m_trashModel;

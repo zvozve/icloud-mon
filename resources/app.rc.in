@@ -32,7 +32,7 @@ BEGIN
     BEGIN
         BLOCK "080404B0"
         BEGIN
-            VALUE "CompanyName", "zvozve"
+            VALUE "CompanyName", "iCloudMon"
             VALUE "FileDescription", "iCloud Drive Sync Monitor"
             VALUE "FileVersion", "@VER_MAJOR@.@VER_MINOR@.@VER_PATCH@"
             VALUE "InternalName", "iCloudMon"

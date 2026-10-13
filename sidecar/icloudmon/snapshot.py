@@ -7,10 +7,12 @@
 # ======================================================================
 from __future__ import annotations
 
+import os
 import shutil
 import sqlite3
 import tempfile
 import time
+from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -203,6 +205,87 @@ def stage_database() -> tuple[str, str]:
     return str(dst), ""
 
 
+# ── 同步根目录解析 ──────────────────────────────────────────────────
+#
+#  iCloud 把同步根改成别处时(用户自定义位置), 程序必须能自己找出来 ——
+#  写死任何一个路径都会"换台机器就指空"。
+#
+#  权威源: iCloudDrive.db 的 local_items.item_absolutepath, 存的是 iCloud
+#  自己写下的**完整本地绝对路径**(机器无关)。但表里没有"根"那一行,
+#  需要从已知项反推:
+#
+#    从任一已知项路径向上逐级取祖先, 选**含有 .Trash 子目录**的最高一层。
+#    (嵌套 .Trash 存在 —— 如 <root>\iCloud~md~obsidian\.Trash, 取最高即消歧。)
+#
+#  实测(本机 200 条样本): 推出唯一解且正确 = C:\Container\Cloud\iCloudDrive。
+#
+#  ⚠ 全过程只读: 只是 is_dir() 探测 + 只读打开数据库, 绝不新建/移动/改名
+#    同步根目录里的任何东西。
+_derived_root_cache: str | None = None
+
+
+def discover_drive_root(db_path: str | None) -> str | None:
+    """从(已 staging 的)数据库反推同步根目录。找不到返回 None。只读。"""
+    if not db_path or not Path(db_path).exists():
+        return None
+    try:
+        conn = sqlite3.connect(f"file:{Path(db_path).as_posix()}?mode=ro", uri=True)
+        try:
+            rows = conn.execute(
+                "SELECT item_absolutepath FROM local_items "
+                "WHERE COALESCE(item_absolutepath,'')<>'' LIMIT 500").fetchall()
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return None
+
+    hits: list[str] = []
+    for row in rows:
+        raw = row[0]
+        p = raw.decode("utf-8", "ignore") if isinstance(raw, (bytes, bytearray)) else str(raw)
+        parts = p.split("\\")
+        # ★ 必须**从盘根往深处**逐级判断, 取第一个"含 .Trash"的目录。
+        #   反过来(从深往浅)会先撞上嵌套的 .Trash —— 例如
+        #   <root>\iCloud~md~obsidian\.Trash —— 于是把子目录当成了同步根
+        #   (实测踩过: 推出 …\iCloudDrive\iCloud~md~obsidian\ZOZE-A)。
+        for i in range(1, len(parts) + 1):
+            d = "\\".join(parts[:i])
+            if len(d) <= 3:          # "C:" 这种盘根跳过
+                continue
+            if Path(d, ".Trash").is_dir():
+                hits.append(d)
+                break
+
+    if not hits:
+        return None
+    # 所有样本应指向同一个根; 取出现次数最多者(个别异常路径不影响结果)
+    root = Counter(hits).most_common(1)[0][0]
+    return root.replace("\\", "/")
+
+
+def current_drive_root(db_path: str | None = None) -> str:
+    """同步根目录的唯一解析入口。
+
+    优先级: 环境变量 > 注册表(用户显式覆盖) > 数据库推导 > %USERPROFILE%\\iCloudDrive
+
+    · ①② 每次现读(便宜, 且用户改了设置立刻生效);
+    · ③ 推导要读库, 结果缓存(昂贵, 且同步根极少变)。
+    """
+    env = os.environ.get("ICLOUD_DRIVE_ROOT")
+    if env:
+        return env.replace("\\", "/")
+
+    saved = paths.setting_get("driveRoot")
+    if saved:
+        return str(saved).replace("\\", "/")
+
+    global _derived_root_cache
+    if _derived_root_cache is None:
+        _derived_root_cache = (discover_drive_root(db_path)
+                               or paths.drive_root_fallback())
+    return _derived_root_cache
+
+
 # ── 读快照 ──────────────────────────────────────────────────────────
 def read_snapshot(db_path: str, drive_root: str) -> Snapshot:
     out = Snapshot()
@@ -366,7 +449,8 @@ def sample() -> Snapshot:
                      elapsed_ms=int((time.perf_counter() - t0) * 1000))
         return s
     try:
-        s = read_snapshot(db_path, paths.drive_root())
+        # 根目录解析放在这里: 已经 staging 好 db, 推导不再多复制一份。
+        s = read_snapshot(db_path, current_drive_root(db_path))
         s.db_ok = True
     except sqlite3.Error as e:
         s = Snapshot(db_ok=False, db_error=f"读库失败: {e}")

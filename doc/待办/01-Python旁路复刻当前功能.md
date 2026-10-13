@@ -7,7 +7,7 @@
 
 ## 已完成（数据层，分支 dev）
 
-[x] sidecar/icloudmon/paths.py —— 路径与用户设置。注册表路径与 QSettings NativeFormat 对齐（HKCU\Software\zvozve\iCloudMon，键名里的 / 是子键）
+[x] sidecar/icloudmon/paths.py —— 路径与用户设置。注册表路径与 QSettings NativeFormat 对齐（HKCU\Software\iCloudMon\iCloudMon，键名里的 / 是子键）
 
 [x] sidecar/icloudmon/snapshot.py —— 复制 db+wal+shm 到临时目录后只读查询；14 条查询与派生状态（stateName/stateDetail/isBusy）逐条对齐 IcloudMonitor.cpp
 
@@ -57,7 +57,7 @@ Python 采集（取数 + 判定 + 将来的网页 API）、C++ 客户端控制�
 
 [ ] 双轨验证：同一时刻 probe.py 的字段值与 C++ 版界面逐项比对（至少覆盖 stateName/upCount/dlCount/delCount/rankText/cloudOnlyCount）。2026-10-13 首页已对上一轮（见上"实机验证"），其余页面待逐页核对
 
-[ ] 历史基线一致性核对：确认 C++ 与旁路写的是同一个 icloud_state.jsonl（%APPDATA%\zvozve\iCloudMon），避免两份历史互相干扰
+[ ] 历史基线一致性核对：确认 C++ 与旁路写的是同一个 icloud_state.jsonl（%APPDATA%\iCloudMon\iCloudMon），避免两份历史互相干扰
 
 [ ] 日志：旁路目前只出 JSON，需要落一份滚动日志，并保留 Qt 侧 spdlog 的关键事件（启动/状态变化/异常）
 

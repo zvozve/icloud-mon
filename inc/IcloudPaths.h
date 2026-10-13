@@ -24,18 +24,37 @@ namespace paths {
 //
 // 为什么单独存QSettings 而不是继续用环境变量:
 // 环境变量是"临时调试手段", 每次开新终端都要重设, 不适合当用户配置。
-//优先级: 环境变量 > 注册表保存值 > 内置默认值。
+//优先级: 环境变量 > 注册表保存值 > 数据库推导(仅 Python 侧) > %USERPROFILE%\iCloudDrive。
 // 环境变量留在最外层, 保证调试时仍能用它临时改指向而不动注册表。
 
 inline QSettings userSettings()
 {
-    // 组织名与应用名在 main.cpp 里已设成 zvozve / iCloudMon,
+    // 组织名与应用名在 main.cpp 里已设成 iCloudMon / iCloudMon,
     // 这里显式再写一遍, 避免以后调用顺序变了导致读到别处的配置。
+    // ★ 组织名曾经是 zvozve(个人账号名), 对通用软件是错的 —— 见
+    //   main.cpp 的 migrateLegacyUserData(): 老用户升级时会把
+    //   HKCU\Software\zvozve\iCloudMon 一次性搬到 HKCU\Software\iCloudMon\iCloudMon。
     return QSettings(QSettings::NativeFormat, QSettings::UserScope,
-                     QStringLiteral("zvozve"), QStringLiteral("iCloudMon"));
+                     QStringLiteral("iCloudMon"), QStringLiteral("iCloudMon"));
 }
 
-// iCloud Drive 本地同步根目录
+// iCloud Drive 本地同步根目录。
+//
+// ★ 这里曾经硬编码成 "C:/Container/Cloud/iCloudDrive" —— 那是**作者本机
+//   自己改过的位置**, 不是通用默认值。标准安装下同步根是
+//   %USERPROFILE%\iCloudDrive, 硬编码会让换台机器就"打开目录"点不动、
+//   .Trash 找不到、待处理项路径全错。
+//
+//   现在的取法(与 Python 侧 paths.py 保持同一优先级):
+//     ① 环境变量(调试)  ICLOUD_DRIVE_ROOT
+//     ② 注册表         用户在设置页显式选过的路径(= 用户覆盖)
+//     ③ 数据库自动推导  ← **真正的权威源**, 见下
+//     ④ %USERPROFILE%\iCloudDrive  ← 仅本级兜底(标准安装位置, 机器无关)
+//
+//   ③ 只在 Python 侧实现: iCloudDrive.db 的 local_items.item_absolutepath
+//   存着 iCloud 自己写的完整本地绝对路径(机器无关), 能反推出真正的根目录;
+//   推导结果随 payload 下发, Bridge::driveRoot() 优先用它。C++ 这层不做
+//   推导(避免同一件事两处实现), 只保留 ①②④ 作为旁路离线时的兜底。
 inline QString driveRoot()
 {
     const QByteArray e = qgetenv("ICLOUD_DRIVE_ROOT");
@@ -47,7 +66,16 @@ inline QString driveRoot()
     if (!saved.isEmpty())
         return saved;
 
-    return QStringLiteral("C:/Container/Cloud/iCloudDrive");
+    return QDir::homePath() + QStringLiteral("/iCloudDrive");
+}
+
+// 用户是否显式覆盖过同步根目录(注册表里有 driveRoot 值)。
+// 设置页的「默认」按钮据此决定显不显示 —— 以前是拿根目录去和那串
+// 硬编码字符串做比较, 硬编码一删它就没意义了。
+inline bool driveRootIsCustom()
+{
+    QSettings s = userSettings();
+    return s.contains(QStringLiteral("driveRoot"));
 }
 
 // 保存用户选择的同步根目录。

@@ -5,6 +5,12 @@
 //  界面: QML (Qt Quick Controls 2), 深色主题。
 //  日志: spdlog, 按天切分, 输出到 exe 同级\log\
 // ======================================================================
+// windows.h 要放在 Qt 头文件之前, 避免顺序引起的宏冲突。
+// 项目全局已定义 WIN32_LEAN_AND_MEAN 与 NOMINMAX。
+// 这里需要它是为了 RegDeleteTree/RegDeleteKey —— QSettings::clear() 只清
+// <org>\<app> 下的键值, 删不掉空的 org 父键(见 migrateLegacyUserData)。
+#include <windows.h>
+
 #include <utility>
 #include <memory>
 
@@ -29,6 +35,7 @@
 #include <QQuickStyle>
 #include <QQuickWindow>
 #include <QSGRendererInterface>
+#include <QSettings>
 #include <QSqlDatabase>
 #include <QSqlError>
 #include <QSqlQuery>
@@ -390,6 +397,95 @@ void setupScreenshotHook(QQmlApplicationEngine &engine, QGuiApplication &app)
     runner->start(2500);  // 给首次渲染与数据采样留时间
 }
 
+// ══════════════════════════════════════════════════════════════════════
+//  一次性迁移: 旧版把 QCoreApplication 组织名写成了作者的账号名 zvozve,
+//  于是注册表根与 %APPDATA% 目录都带上了这个名字。v1.0.4 起统一改为产品名
+//  iCloudMon, 老用户首次运行新版时把数据搬过去, 只搬一次。
+//
+//  ★ 只动**本程序自己**的两处数据, 绝不触碰 iCloud 官方客户端的任何东西:
+//      %APPDATA%\zvozve\iCloudMon\      -> %APPDATA%\iCloudMon\iCloudMon\
+//      HKCU\Software\zvozve\iCloudMon   -> HKCU\Software\iCloudMon\iCloudMon
+//    前者存的是卡死检测历史(icloud_state.jsonl), 后者是用户设置(导航顺序、
+//    UI 开关、同步根覆盖值……)。
+//
+//  幂等: 仅当「老位置有内容 且 新位置为空」时才搬; 搬完清掉老位置。
+//  这样重复运行不会覆盖用户在**新版**里已改过的设置。
+//
+//  必须在 log::init() 之前调用(QSettings 不依赖日志), 返回一条说明供
+//  log::init() 之后写进日志 —— 迁移结果必须留痕, 否则出问题无从追溯。
+// ══════════════════════════════════════════════════════════════════════
+QString migrateLegacyUserData()
+{
+    QStringList notes;
+
+    // ── ① 注册表: HKCU\Software\zvozve\iCloudMon → ...\iCloudMon\iCloudMon ──
+    // QSettings 的 (scope, org, app) 构造显式传入 org/app, 不依赖
+    // setOrganizationName 的当前值, 所以两边都能精确指向。
+    QSettings oldReg(QSettings::NativeFormat, QSettings::UserScope,
+                     QStringLiteral("zvozve"), QStringLiteral("iCloudMon"));
+    QSettings newReg(QSettings::NativeFormat, QSettings::UserScope,
+                     QStringLiteral("iCloudMon"), QStringLiteral("iCloudMon"));
+    const QStringList oldKeys = oldReg.allKeys();
+    if (!oldKeys.isEmpty() && newReg.allKeys().isEmpty()) {
+        for (const QString &k : oldKeys)
+            newReg.setValue(k, oldReg.value(k));
+        newReg.sync();
+        if (newReg.status() == QSettings::NoError) {
+            oldReg.clear();          // 清掉老键值, 避免下次再搬
+            oldReg.sync();
+            // ★ QSettings::clear() 只清 <org>\<app> 下的键值, **不会删掉
+            //   空的 org 父键** —— 实测清完还剩一个空壳 HKCU\Software\zvozve。
+            //   要彻底抹掉这个名字, 得用原生 API:
+            //     · 先删子树 ...\zvozve\iCloudMon;
+            //     · 再删空的 ...\zvozve —— RegDeleteKeyW **只在无子键时成功**,
+            //       所以万一 zvozve 下还有别的程序留下的键, 这一步会安全地
+            //       失败(返回非 0), 不会误删别人的东西。
+            ::RegDeleteTreeW(HKEY_CURRENT_USER, L"Software\\zvozve\\iCloudMon");
+            ::RegDeleteKeyW(HKEY_CURRENT_USER, L"Software\\zvozve");
+            notes << QStringLiteral("注册表 zvozve→iCloudMon: 已迁移 %1 项")
+                         .arg(oldKeys.size());
+        } else {
+            notes << QStringLiteral("注册表迁移写入失败(status=%1), 旧键保留")
+                         .arg(int(newReg.status()));
+        }
+    }
+
+    // ── ② 历史文件目录: %APPDATA%\zvozve\iCloudMon → ...\iCloudMon\iCloudMon ──
+    const QString appData = qEnvironmentVariable("APPDATA");
+    if (!appData.isEmpty()) {
+        QDir oldDir(appData + QStringLiteral("/zvozve/iCloudMon"));
+        const QDir newDir(appData + QStringLiteral("/iCloudMon/iCloudMon"));
+        if (oldDir.exists()) {
+            QDir().mkpath(newDir.absolutePath());
+            const QStringList files = oldDir.entryList(QDir::Files);
+            if (newDir.entryList(QDir::Files).isEmpty() && !files.isEmpty()) {
+                int moved = 0;
+                for (const QString &f : files) {
+                    if (QFile::copy(oldDir.absoluteFilePath(f),
+                                    newDir.absoluteFilePath(f))) {
+                        QFile::remove(oldDir.absoluteFilePath(f));
+                        ++moved;
+                    }
+                }
+                notes << QStringLiteral("历史目录 zvozve→iCloudMon: 已迁移 %1 个文件")
+                             .arg(moved);
+            }
+            // 老目录里文件已搬空(或本来就是空的) → 删掉空壳
+            if (oldDir.entryList(QDir::Files).isEmpty())
+                oldDir.removeRecursively();
+            // ★ 父目录 (%APPDATA%\zvozve) 也可能变空 —— 不删的话用户 AppData
+            //   下会长期留一个 zvozve 空目录, 等于改名没改干净(注册表那边
+            //   同理, 用 RegDeleteKeyW 删空 org 键)。
+            QDir orgDir(appData + QStringLiteral("/zvozve"));
+            if (orgDir.exists()
+                && orgDir.entryList(QDir::AllEntries | QDir::NoDotAndDotDot).isEmpty())
+                orgDir.removeRecursively();
+        }
+    }
+
+    return notes.join(QStringLiteral("; "));
+}
+
 }  // namespace
 
 int main(int argc, char *argv[])
@@ -459,7 +555,11 @@ int main(int argc, char *argv[])
     // 刻意**不**设 setApplicationDisplayName: 它在部分 Windows 环境下会被追加到
     // 窗口标题栏, 而 QML 的 title 已含"iCloud 状态监控", 叠加后标题重复成
     // "iCloud 状态监控 v1.0.1 - 同步中 - iCloud 状态监控"。窗口标题由 QML 唯一提供。
-    app.setOrganizationName(QStringLiteral("zvozve"));
+    // ★ 组织名 = 出品方标识, 会决定注册表根(HKCU\Software\<org>\<app>)与
+    //   %APPDATA%\<org>\<app>\。它曾经是 zvozve(作者个人账号名) —— 对通用
+    //   软件是错的: 用户机器的注册表里出现作者 handle 没有任何信息量, 别人
+    //   fork 后还会跟自己抢同一个键。现统一为产品名 iCloudMon。
+    app.setOrganizationName(QStringLiteral("iCloudMon"));
     // 版本号来自 CMake 的 project(VERSION), 编译期注入(单一真相源),
     // 不再手写字符串 —— 改版本只改 CMakeLists.txt 一处。
     app.setApplicationVersion(QStringLiteral(APP_VERSION));
@@ -490,10 +590,18 @@ int main(int argc, char *argv[])
                           QStringLiteral("SimHei") });
     app.setFont(appFont);
 
+    // ── 旧版用户数据迁移 ──
+    // 必须在任何 QSettings / %APPDATA% 读取之前: 否则本进程会先按新路径
+    // 读到空配置(表现为"设置全丢了"), 再迁移也救不回这一轮的内存状态。
+    // 结果先存着, 等 log::init() 之后写进日志。
+    const QString migrationNote = migrateLegacyUserData();
+
     // ── 日志初始化 (必须在任何其他模块之前) ──
     icloud::log::init();
     icloud::log::info(QStringLiteral("[RUN] ==== iCloudMon %1 启动 ====")
                           .arg(app.applicationVersion()));
+    if (!migrationNote.isEmpty())
+        icloud::log::info(QStringLiteral("[RUN] 用户数据迁移: %1").arg(migrationNote));
     icloud::log::info(QStringLiteral("[RUN] Qt %1 / exe=%2")
                           .arg(QString::fromLatin1(qVersion()),
                                QCoreApplication::applicationDirPath()));
@@ -515,8 +623,10 @@ int main(int argc, char *argv[])
     //       用户感知就是"双击了一下窗口就出来了"。
     //
     //  socket 名字带用户名: 同一台机器上多个用户各跑一份互不干扰。
+    // ★ 名字里曾带 zvozve(作者标识), 换掉 —— 单实例名是运行时命名空间,
+    //   别人 fork 后应各用各的名字, 不该跟着作者的 handle 走。
     const QString sockName =
-        QStringLiteral("zvozve-iCloudMon-") + qEnvironmentVariable("USERNAME");
+        QStringLiteral("iCloudMon-") + qEnvironmentVariable("USERNAME");
     QLocalSocket probe;
     probe.connectToServer(sockName);
     if (probe.waitForConnected(300)) {

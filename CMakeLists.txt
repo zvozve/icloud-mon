@@ -160,6 +160,12 @@ target_link_libraries(iCloudMon PRIVATE
     spdlog_header_only
 )
 
+if(WIN32)
+    # main.cpp 用 RegDeleteTree/RegDeleteKey 清理旧版留下的空注册表键
+    # (QSettings::clear 删不掉 org 父键), 需要 Advapi32。
+    target_link_libraries(iCloudMon PRIVATE Advapi32)
+endif()
+
 # 32 位校验: 与 msvc2019(32bit) 套件对齐
 target_compile_definitions(iCloudMon PRIVATE
     QT_NO_CAST_FROM_ASCII

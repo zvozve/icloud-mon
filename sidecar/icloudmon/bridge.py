@@ -9,9 +9,8 @@ from __future__ import annotations
 
 import time
 
-from . import paths
 from .procs import running_processes
-from .snapshot import Snapshot, human_size
+from .snapshot import Snapshot, current_drive_root, human_size
 from .stall import StallInfo
 
 
@@ -181,7 +180,7 @@ def build(s: Snapshot, st: StallInfo, *, running: list[str] | None = None,
         "busyRestarting": restarting,
 
         # 设置
-        "driveRoot": paths.drive_root(),
+        "driveRoot": current_drive_root(),
         "refreshSec": refresh_sec,
         "stallSec": stall_sec,
         "closeToTray": close_to_tray,

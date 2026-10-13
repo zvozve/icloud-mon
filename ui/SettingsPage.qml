@@ -331,10 +331,12 @@ Item {
                     id: resetDriveBtn
                     kind: "ghost"
                     text: "默认"
-                    visible: Bridge.driveRoot !== "C:/Container/Cloud/iCloudDrive"
+                    // 只在"用户覆盖过"(注册表里有 driveRoot)时才显示 ——
+                    // 以前是拿根目录去比那串硬编码默认值, 硬编码已删。
+                    visible: Bridge.driveRootIsCustom
                     onClicked: Bridge.resetDriveRoot()
                     ToolTip.visible: hovered
-                    ToolTip.text: "恢复内置默认路径"
+                    ToolTip.text: "恢复默认路径（自动检测的 iCloud 目录）"
                     ToolTip.delay: 600
                 }
             }

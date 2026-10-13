@@ -116,6 +116,6 @@ sidecar/runtime/Scripts/python.exe sidecar/probe_reminders.py cloudkit --user yo
 - 核心数据层**只用标准库**（sqlite3/json/ctypes/winreg/subprocess），
   只有新增的网页 API 功能才需要 `pyicloud` 等第三方包。
 - 用户设置的注册表路径必须与 Qt 的 `QSettings` 一致：
-  `HKCU\Software\zvozve\iCloudMon`，键名里的 `/` 在注册表里是子键。
+  `HKCU\Software\iCloudMon\iCloudMon`，键名里的 `/` 在注册表里是子键。
 - 卡死检测的历史文件位置必须与 C++ 版一致，否则两边基线不同步：
-  `%APPDATA%\zvozve\iCloudMon\icloud_state.jsonl`。
+  `%APPDATA%\iCloudMon\iCloudMon\icloud_state.jsonl`。

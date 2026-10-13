@@ -37,7 +37,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from icloudmon import paths                                   # noqa: E402
 from icloudmon.bridge import build                            # noqa: E402
 from icloudmon.procs import running_processes                 # noqa: E402
-from icloudmon.snapshot import sample                         # noqa: E402
+from icloudmon.snapshot import current_drive_root, sample     # noqa: E402
 from icloudmon.stall import append_history, detect_stall, reset_history  # noqa: E402
 
 DEFAULT_REFRESH_SEC = 5
@@ -164,7 +164,7 @@ def handle(cmd: dict) -> None:
 def main() -> int:
     emit("ready", {
         "pid": os.getpid(),
-        "driveRoot": paths.drive_root(),
+        "driveRoot": current_drive_root(),
         "dbFile": paths.db_file(),
         "refreshSec": DEFAULT_REFRESH_SEC,
         "stallSec": DEFAULT_STALL_SEC,

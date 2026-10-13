@@ -67,7 +67,7 @@ public:
     // 读四类的当前状态。云盘复用已采样的 Snapshot, 其余三类读各自的库。
     static QVector<CategoryStatus> readAll(const Snapshot &snap);
 
-    // 用户手动指定的启用状态(存在 HKCU\Software\zvozve\iCloudMon)
+    // 用户手动指定的启用状态(存在 HKCU\Software\iCloudMon\iCloudMon)
     static bool hasUserValue(const QString &key);
     static bool userValue(const QString &key);        // 无值时返回 false
     static void setUserValue(const QString &key, bool on);

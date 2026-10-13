@@ -7,9 +7,13 @@
 #
 #  ★ 用户配置的存储位置必须和 Qt 的 QSettings(NativeFormat, UserScope)
 #    完全一致, 否则两边读到的同步根目录会不一样:
-#      HKEY_CURRENT_USER\Software\zvozve\iCloudMon
+#      HKEY_CURRENT_USER\Software\iCloudMon\iCloudMon
 #    键名里的 '/' 在注册表里表现为子键 (QSettings NativeFormat 行为),
 #    所以 "ui/closeToTray" -> ...\iCloudMon\ui 下的 closeToTray 值。
+#
+#  ★ 组织名曾是 zvozve(作者账号名), v1.0.4 起统一为产品名 iCloudMon。
+#    老用户升级时 C++ 侧 main.cpp 的 migrateLegacyUserData() 会把
+#    HKCU\Software\zvozve\iCloudMon 一次性搬到新键。
 # ======================================================================
 from __future__ import annotations
 
@@ -17,7 +21,7 @@ import os
 import winreg
 from pathlib import Path
 
-ORG = "zvozve"
+ORG = "iCloudMon"
 APP = "iCloudMon"
 
 # 需要管理的 iCloud 进程 (与 C++ 四个稳定进程名一致)
@@ -28,7 +32,6 @@ PROCESS_NAMES = [
     "ApplePhotoStreams.exe",
 ]
 
-DEFAULT_DRIVE_ROOT = "C:/Container/Cloud/iCloudDrive"
 DEFAULT_PACKAGE_FAMILY = "AppleInc.iCloud_nzyj5cx40ttqa"
 DEFAULT_APP_ID = "iCloud"
 
@@ -37,7 +40,7 @@ _REG_ROOT = rf"Software\{ORG}\{APP}"
 
 # ── 用户配置 (QSettings NativeFormat 兼容读写) ──────────────────────
 def _reg_path(name: str) -> tuple[str, str]:
-    """'ui/closeToTray' -> ('Software\\zvozve\\iCloudMon\\ui', 'closeToTray')"""
+    """'ui/closeToTray' -> ('Software\\iCloudMon\\iCloudMon\\ui', 'closeToTray')"""
     parts = name.replace("/", "\\").strip("\\").split("\\")
     return "\\".join([_REG_ROOT] + parts[:-1]), parts[-1]
 
@@ -74,14 +77,22 @@ def setting_delete(name: str) -> bool:
 
 
 # ── 同步根目录 ──────────────────────────────────────────────────────
-def drive_root() -> str:
-    env = os.environ.get("ICLOUD_DRIVE_ROOT")
-    if env:
-        return env.replace("\\", "/")
-    saved = setting_get("driveRoot")
-    if saved:
-        return str(saved).replace("\\", "/")
-    return DEFAULT_DRIVE_ROOT
+#
+# ★ 解析优先级(与 C++ 侧 inc/IcloudPaths.h 的说明一致):
+#     ① 环境变量 ICLOUD_DRIVE_ROOT   (调试)
+#     ② 注册表 driveRoot             (用户在设置页显式覆盖)
+#     ③ 数据库推导                    ← 权威源, 见 snapshot.current_drive_root()
+#     ④ %USERPROFILE%\iCloudDrive    (标准安装位置, 机器无关兜底)
+#
+#   这里**只提供 ④ 的兜底值**; 把 ①②③ 串起来的那一步统一放在
+#   snapshot.current_drive_root() 里(它才拿得到数据库), 避免同一件事
+#   在多个模块各写一份。
+#
+#   ★ 曾经这里硬编码成 "C:/Container/Cloud/iCloudDrive" —— 那是作者本机
+#     自己改过的位置, 换台机器必然指空。已删除。
+def drive_root_fallback() -> str:
+    """标准安装下 iCloud Drive 的同步根: %USERPROFILE%\\iCloudDrive。"""
+    return str(Path.home() / "iCloudDrive").replace("\\", "/")
 
 
 def set_drive_root(path: str) -> bool:

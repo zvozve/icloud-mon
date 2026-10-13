@@ -244,7 +244,7 @@ bool Bridge::setAutoStart(bool on)
 
 // ── 历史 ──────────────────────────────────────────────────────────
 // 基线文件由旁路维护(sidecar/stall.py), 位置与旧 C++ 版一致:
-// %APPDATA%\zvozve\iCloudMon\icloud_state.jsonl
+// %APPDATA%\iCloudMon\iCloudMon\icloud_state.jsonl
 void Bridge::resetHistory()
 {
     m_sidecar->resetHistory();
@@ -388,14 +388,33 @@ void Bridge::openLogDir()
 }
 
 // ── 同步根目录 ────────────────────────────────────────────────────
+//
+// 值的真源在旁路: sidecar/icloudmon/snapshot.py 的 current_drive_root()
+// 按 env > 注册表(用户覆盖) > 数据库推导 > %USERPROFILE%\iCloudDrive 解析,
+// 结果随 payload 的 "driveRoot" 下发(**数据库推导只在 Python 侧做, 因为
+// 只有它读得到 iCloudDrive.db**)。
+// C++ 这层不再自己算根目录:
+//   · 有 payload 值  -> 用它;
+//   · 旁路离线       -> 用最后一次收到的 m_driveRoot(配置不是同步数据);
+//   · 从未收到过     -> 退回 paths::driveRoot()(env>注册表>标准安装位置)。
 QString Bridge::driveRoot() const
 {
+    const QString fromSidecar = jstr(m_payload, "driveRoot");
+    if (!fromSidecar.isEmpty())
+        return fromSidecar;
+    if (!m_driveRoot.isEmpty())
+        return m_driveRoot;
     return paths::driveRoot();
+}
+
+bool Bridge::driveRootIsCustom() const
+{
+    return paths::driveRootIsCustom();
 }
 
 void Bridge::openDriveRoot()
 {
-    const QString dir = paths::driveRoot();
+    const QString dir = driveRoot();
     if (!QDir(dir).exists()) {
         log::warn(QStringLiteral("同步根目录不存在: %1").arg(dir));
         emit notify(QStringLiteral("error"),
@@ -412,7 +431,7 @@ void Bridge::openCloudTrash()
     // (实测本机: C:\Container\Cloud\iCloudDrive\.Trash 确实存在)
     // ★ 只"打开查看", 本程序不提供任何删除/清空动作 —— 删除是不可逆的,
     //   不该由一个监控程序代劳。
-    const QString dir = paths::driveRoot() + QStringLiteral("/.Trash");
+    const QString dir = driveRoot() + QStringLiteral("/.Trash");
     if (!QDir(dir).exists()) {
         log::warn(QStringLiteral("iCloud 回收站不存在: %1").arg(dir));
         emit notify(QStringLiteral("info"),
@@ -460,11 +479,14 @@ bool Bridge::setDriveRoot(const QString &path)
                     QStringLiteral("目录不存在: %1").arg(clean));
         return false;
     }
-    // iCloud Drive 根目录里必然有 .icloud 隐藏文件, 拿它做二次确认,
-    // 避免用户随手选了个普通文件夹却以为设置成功了。
-    const bool looksLikeDrive = !probe.entryList(
-                    QStringList() << QStringLiteral(".icloud"),
-                    QDir::Hidden | QDir::Files).isEmpty();
+    // ★ 这里原来用「iCloud Drive 根目录里必然有 .icloud 隐藏文件」做二次
+    //   校验 —— **实测是错的**: 根目录下根本没有 .icloud(`.icloud` 是
+    //   **单个文件**被驱逐后留下的占位符, 不是根标记)。那句永远是
+    //   "未检测到", 写了等于没写, 还会误导排障。
+    //   现在改用根目录的**权威特征**: iCloud 在同步根下必建 .Trash 回收站
+    //   (与 Python 侧反推根目录用的是同一个判据)。仅作提示, 不阻止用户 ——
+    //   目录刚建好、还没同步过东西时 .Trash 可能尚未出现。
+    const bool looksLikeDrive = QDir(clean + QStringLiteral("/.Trash")).exists();
 
     QString err;
     if (!paths::setDriveRoot(clean, &err)) {
@@ -476,8 +498,8 @@ bool Bridge::setDriveRoot(const QString &path)
     }
 
     log::userAction(QStringLiteral("设置同步根目录=%1").arg(clean),
-                    looksLikeDrive ? QStringLiteral("成功(检测到 .icloud)")
-                                   : QStringLiteral("成功(未检测到 .icloud)"));
+                    looksLikeDrive ? QStringLiteral("成功(检测到 .Trash)")
+                                   : QStringLiteral("成功(未检测到 .Trash, 仅提示)"));
     emit driveRootChanged();
     emit notify(QStringLiteral("ok"), QStringLiteral("同步根目录已更新"));
     // 路径变了, 立刻重采一次让界面跟上(旁路每帧都从注册表读根目录)
@@ -488,10 +510,10 @@ bool Bridge::setDriveRoot(const QString &path)
 void Bridge::resetDriveRoot()
 {
     paths::clearDriveRoot();
-    log::userAction(QStringLiteral("恢复默认同步根目录"),
-                    paths::driveRoot());
+    log::userAction(QStringLiteral("恢复默认同步根目录"), driveRoot());
     emit driveRootChanged();
     emit notify(QStringLiteral("ok"), QStringLiteral("已恢复默认路径"));
+    // 清掉覆盖值后立刻重采: 界面上的路径要刷新成"推导/标准位置"的结果
     m_sidecar->refreshNow();
 }
 
@@ -503,6 +525,14 @@ void Bridge::resetDriveRoot()
 void Bridge::onSidecarSnapshot(const QJsonObject &payload)
 {
     m_payload = payload;
+
+    // 同步根目录由旁路解析后下发(env>注册表>数据库推导>标准位置)。
+    // 单独缓存: 它属于"配置", 离线时不清空(否则界面会显示错误路径)。
+    const QString root = jstr(payload, "driveRoot");
+    if (!root.isEmpty() && root != m_driveRoot) {
+        m_driveRoot = root;
+        emit driveRootChanged();
+    }
 
     // 明细列表 -> 三个 ListModel(角色名不变, QML 绑定无需改动)
     QVector<PendingItem> pend;

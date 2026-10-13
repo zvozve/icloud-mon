@@ -23,7 +23,7 @@ Windows 上 iCloud Drive（Store 版）的同步状态监控器。
 | **设置** | 怎么配？ | 类别启用、侧边栏顺序、默认启动页、自启动、刷新间隔、卡死阈值、同步根目录、日志、系统通知 |
 
 侧边栏顺序：**首页固定最前、设置固定最后**（不可调），中间四类可用 ↑↓ 调整，
-顺序存进 `QSettings`（`HKCU\Software\zvozve\iCloudMon` 的 `nav/order`）。
+顺序存进 `QSettings`（`HKCU\Software\iCloudMon\iCloudMon` 的 `nav/order`）。
 默认启动页同样持久化（`nav/defaultPage`），只在启动时取一次 ——
 不做成绑定，否则用户一改设置当前页就被拽走。
 
@@ -290,10 +290,16 @@ QML 加载失败这类只往 stderr 打的问题，关掉控制台后也能查�
 | 优先级 | 来源 | 用途 |
 |---|---|---|
 | 1 | 环境变量 `ICLOUD_DRIVE_ROOT` | 临时调试，可临时改指向而不动注册表 |
-| 2 | 注册表 `HKCU\Software\zvozve\iCloudMon` 的 `driveRoot` | 用户在设置页选的路径，重启后仍有效 |
-| 3 | 内置默认 `C:/Container/Cloud/iCloudDrive` | 兜底 |
+| 2 | 注册表 `HKCU\Software\iCloudMon\iCloudMon` 的 `driveRoot` | 用户在设置页选的路径，重启后仍有效 |
+| 3 | **数据库自动推导** | 从 `iCloudDrive.db` 反推真实同步根（见下） |
+| 4 | `%USERPROFILE%\iCloudDrive` | 标准安装位置，机器无关兜底 |
 
-设置页选目录时会做两项校验：目录必须存在、目录内应有 `.icloud` 隐藏文件
+第 3 条是真正的权威来源：iCloud 把每个已知项的**完整本地绝对路径**写进
+`iCloudDrive.db` 的 `local_items.item_absolutepath`（机器无关），从中向上找
+「含 `.Trash` 子目录的最高祖先」即可推出同步根 —— 用户把 iCloud 目录挪到
+别处也能自动找到，不需要手填。
+
+设置页选目录时会做两项校验：目录必须存在、目录内应有 `.Trash` 回收站目录
 （iCloud Drive 的标志）。第二项只写日志不阻断 —— 有少量目录可能为空，
 不该因此让用户选不了。
 
@@ -315,7 +321,7 @@ QML 加载失败这类只往 stderr 打的问题，关掉控制台后也能查�
 位置在**用户 AppData**，不是 exe 同级：
 
 ```
-C:\Users\<用户>\AppData\Roaming\zvozve\iCloudMon\icloud_state.jsonl
+C:\Users\<用户>\AppData\Roaming\iCloudMon\iCloudMon\icloud_state.jsonl
 ```
 
 原因：exe 可能装在 Program Files 下只读，写不进去卡死检测就彻底失效。
