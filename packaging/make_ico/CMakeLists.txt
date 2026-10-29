@@ -15,7 +15,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_AUTOMOC ON)
 
 if(NOT DEFINED QT_HOST_PATH)
-    set(QT_HOST_PATH "C:/Container/System/Library/QT/5.15.2/msvc2019")
+    set(QT_HOST_PATH "C:/Container/Applications/QT/5.15.2/msvc2019")
 endif()
 
 find_package(Qt5 5.15 REQUIRED COMPONENTS Core Gui Svg)

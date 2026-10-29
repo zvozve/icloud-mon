@@ -12,14 +12,14 @@ project(iCloudMon VERSION 1.0.7 LANGUAGES CXX)
 #    call "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\
 #         VC\Auxiliary\Build\vcvars64.bat"
 #    cmake -S . -B build -G "Visual Studio 17 2022" -A x64 ^
-#          -DCMAKE_PREFIX_PATH=C:/Container/System/Library/QT/6.8.3/msvc2022_64
+#          -DCMAKE_PREFIX_PATH=C:/Container/Applications/QT/6.8.3/msvc2022_64
 #    cmake --build build --config Release
 #
 #  ★ 工具链变更史(别被旧注释误导):
 #    1.0.4 及以前 = MSVC 2019 32bit + Qt 5.15.2 msvc2019。
 #    1.0.5 起    = MSVC 2022 64bit + Qt 6.8.3 msvc2022_64。
 #    32 位的旧构建目录保留在 build32/(不进版本库), 用于随时对照。
-#    Qt5 32 位套件仍留在 C:/Container/System/Library/QT/5.15.2/msvc2019,
+#    Qt5 32 位套件仍留在 C:/Container/Applications/QT/5.15.2/msvc2019,
 #    公司项目继续用它, 与本工程互不影响。
 # ======================================================================
 
@@ -40,7 +40,7 @@ set(CMAKE_INCLUDE_CURRENT_DIR ON)
 
 # Qt 安装目录(默认构建机路径; 可用 -DICLOUDMON_QT_DIR=... 覆盖)
 if(NOT DEFINED ICLOUDMON_QT_DIR)
-    set(ICLOUDMON_QT_DIR "C:/Container/System/Library/QT/6.8.3/msvc2022_64")
+    set(ICLOUDMON_QT_DIR "C:/Container/Applications/QT/6.8.3/msvc2022_64")
 endif()
 list(APPEND CMAKE_PREFIX_PATH "${ICLOUDMON_QT_DIR}")
 

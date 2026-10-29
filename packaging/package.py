@@ -31,7 +31,7 @@ from pathlib import Path
 #   会打印 "does not seem to be a Qt executable" 然后失败(因为 Qt5 的
 #   windeployqt 只认 Qt5 的导入表)。Qt5 32 位套件仍留在
 #   .../QT/5.15.2/msvc2019, 供公司项目使用, 本工程不用它。
-DEF_QT = os.environ.get("QTDIR", r"C:/Container/System/Library/QT/6.8.3/msvc2022_64")
+DEF_QT = os.environ.get("QTDIR", r"C:/Container/Applications/QT/6.8.3/msvc2022_64")
 DEF_EVB = os.environ.get(
     "EVB_CONSOLE", r"C:/Program Files (x86)/Enigma Virtual Box/enigmavbconsole.exe")
 DEF_GENERATOR = ("Visual Studio 17 2022", "x64")   # 与本仓库 build/ 现状一致

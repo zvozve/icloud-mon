@@ -21,7 +21,7 @@ REM =====================================================================
 setlocal
 
 set VCVARS=C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvars64.bat
-set QTDIR=C:/Container/System/Library/QT/6.8.3/msvc2022_64
+set QTDIR=C:/Container/Applications/QT/6.8.3/msvc2022_64
 set BUILDDIR=build
 set TARGET=iCloudMon.exe
 
