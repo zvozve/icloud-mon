@@ -116,7 +116,10 @@ def handle(cmd: dict) -> None:
     rid = cmd.get("id")
 
     if name == "refresh":
-        emit("reply", do_sample(push=False), rid)
+        # ★ 必须 push=True: "立即刷新"按钮要真的把新帧推给界面。
+        #   旧实现 push=False 只回 reply, 而 SidecarClient 不处理 reply 里的
+        #   数据 —— 于是手动刷新点了没反应, 看起来像"UI 没刷新"。
+        emit("reply", do_sample(push=True), rid)
 
     elif name == "start":
         with _lock:

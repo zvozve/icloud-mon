@@ -287,15 +287,16 @@ void Bridge::openItemLocation(const QString &raw)
                 emit notify(QStringLiteral("error"),
                             QStringLiteral("无法打开目录: %1").arg(path));
         } else {
-            log::userAction(QStringLiteral("定位文件"), path);
-            // explorer 的 /select, 后面**不能有空格**, 参数是一个整体。
-            // 同样交给 ShellAPI: 直接 openUrl 会打开文件而不是"选中"它,
-            // 所以这里仍走 explorer, 但用 QProcess::splitCommand 的
-            // 单字符串形式自己拼, 避免 QProcess 各自引号化破坏整体性。
-            const QString cmd = QStringLiteral("explorer.exe /select,")
-                                + QDir::toNativeSeparators(path);
-            if (!QProcess::startDetached(cmd))
-                openInShell(path);      // 退一步: 至少把所在目录打开
+            // 需求: 单击卡住的文件只打开**所在目录**, 不打开/选中文件本身。
+            // 旧实现走 explorer /select 选中文件, 用户看到文件被选中/打开;
+            // 失败时 fallback 的 openInShell(path) 更会直接用默认程序打开文件。
+            // 这里统一只传父目录 —— 单一路径, 不会再误开文件。
+            const QString dir = fi.absolutePath();
+            log::userAction(QStringLiteral("定位文件 -> 打开所在目录"),
+                            QStringLiteral("%1 -> %2").arg(path, dir));
+            if (!openInShell(dir))
+                emit notify(QStringLiteral("error"),
+                            QStringLiteral("无法打开目录: %1").arg(dir));
         }
         return;
     }
@@ -589,50 +590,81 @@ void Bridge::onSidecarSnapshot(const QJsonObject &payload)
     emit snapshotChanged();
 }
 
+// 同一种异常的提醒冷却: 重启 iCloud / 状态抖动会让"卡死"在相邻两帧里
+// 出现-消失-再出现, 只靠边沿触发仍会连弹。冷却期内不再重复提醒。
+// 持续卡死期间不再逐帧弹窗 —— 这是本次修复的核心(见下面 applyAnomalies)。
+namespace {
+constexpr qint64 kAnomalyNotifyCooldownMs = 10 * 60 * 1000;
+}
+
 // 异常落到 m_anomaly*: 语义与旧 C++ 版逐条一致(见原 Bridge::onAnomaly 注释)
 void Bridge::applyAnomalies(const QJsonArray &arr)
 {
     const bool wasAnomalous = m_anomalous;
     const bool nowAnomalous = !arr.isEmpty();
 
+    // m_anomaly* 是"当前帧"的展示数据, 每帧重算。
+    // ★ 不能拿它判断"新出现" —— 旧实现先 clear() 再 contains(), 于是只要
+    //   有任何异常 isNewKind 恒为 true, 卡死时每帧(默认 5 秒)都发一次系统
+    //   通知。是否新出现必须和**上一帧**的种类集合比, 见 m_notifiedKinds。
     m_anomalyList.clear();
     m_anomalyTitle.clear();
     m_anomalyDetail.clear();
 
-    bool isNewKind = false;
+    QString stallTitle, stallDetail;   // 卡死这一条自己的文案, 不被后续异常覆盖
     for (const QJsonValue &v : arr) {
         const QJsonObject o = v.toObject();
         const QString kind   = o.value(QStringLiteral("kind")).toString();
         const QString title  = o.value(QStringLiteral("title")).toString();
         const QString detail = o.value(QStringLiteral("detail")).toString();
-        // 与旧实现一致: 后一条覆盖标题/详情
+        // 与旧实现一致: 后一条覆盖标题/详情(供 UI 展示)
         m_anomalyTitle  = title;
         m_anomalyDetail = detail;
-        if (!m_anomalyList.contains(kind)) {
+        if (!m_anomalyList.contains(kind))
             m_anomalyList.append(kind);
-            isNewKind = true;
+        // 卡死可能和"下载错误"等同时存在, 发通知要用卡死自己的文案。
+        // 否则会出现"卡死触发 -> 标题却是'存在下载错误码'"这种错配。
+        if (kind == QStringLiteral("卡死")) {
+            stallTitle  = title;
+            stallDetail = detail;
         }
     }
     m_anomalous = nowAnomalous;
 
-    // 弹窗只在新出现 / 换了种类时给。持续卡死状态下每帧都弹的话,
-    // Toast 动画会被反复重启, 既是持续打扰也让界面反复重绘。
-    if (nowAnomalous && (!wasAnomalous || isNewKind)) {
-        const QString kind = m_anomalyList.value(0);
+    // 本次真正要提醒的种类: 相对上一帧新增 + 不在冷却期内。
+    const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
+    QStringList fresh;
+    for (const QString &kind : m_anomalyList) {
+        if (m_notifiedKinds.contains(kind))
+            continue;
+        if (nowMs - m_lastNotifyMs.value(kind, 0) < kAnomalyNotifyCooldownMs)
+            continue;
+        fresh.append(kind);
+    }
+
+    if (!fresh.isEmpty()) {
         // 卡死 -> Windows 系统通知(进通知中心, 人在别的程序也能收到);
-        // 其余 -> 窗口内提示条
-        if (m_anomalyList.contains(QStringLiteral("卡死"))) {
+        // 其余 -> 窗口内提示条。卡死与其他异常同时新增时, 卡死优先走系统通道,
+        // 其余本次不重复弹(状态区仍会完整显示所有异常)。
+        if (fresh.contains(QStringLiteral("卡死"))) {
             log::userAction(QStringLiteral("卡死告警触发系统通知"),
-                            QStringLiteral("停滞 %1").arg(m_anomalyDetail));
-            emit systemNotify(m_anomalyTitle, m_anomalyDetail);
+                            QStringLiteral("停滞 %1").arg(stallDetail));
+            emit systemNotify(stallTitle.isEmpty() ? m_anomalyTitle : stallTitle,
+                              stallDetail);
         } else {
             emit notify(QStringLiteral("warn"),
-                        QStringLiteral("[%1] %2").arg(kind, m_anomalyTitle));
+                        QStringLiteral("[%1] %2").arg(fresh.first(), m_anomalyTitle));
         }
+        for (const QString &kind : fresh)
+            m_lastNotifyMs.insert(kind, nowMs);
     } else if (!nowAnomalous && wasAnomalous) {
+        // 恢复只在"有 -> 无"的边沿提示一次
         log::info(QStringLiteral("[ANOMALY] 已恢复, 同步回到正常"));
         emit notify(QStringLiteral("ok"), QStringLiteral("同步已恢复正常"));
     }
+
+    // 记住本帧种类, 供下一帧做边沿比较。持续卡死 => 下一帧 fresh 为空 => 静默。
+    m_notifiedKinds = m_anomalyList;
     emit anomalyChanged();
 }
 
@@ -640,6 +672,10 @@ void Bridge::applyAnomalies(const QJsonArray &arr)
 void Bridge::applyOffline(const QString &reason)
 {
     m_payload = QJsonObject();      // 清空 -> getter 全部回落为 0/"—"
+    // 清掉异常去重状态: 旁路重连后若又卡死, 应作为一次新告警重新提醒,
+    // 否则 m_notifiedKinds 还留着断线前的种类, 重连后的卡死会被静默吞掉。
+    m_notifiedKinds.clear();
+    m_lastNotifyMs.clear();
     m_pendingModel.setItems({});
     m_localModel.setItems({});
     m_trashModel.setItems({});
@@ -854,6 +890,24 @@ void Bridge::loadUiSettings()
     // 默认 false = 点关闭按钮直接退出, 与历史行为一致(不改变老用户习惯)。
     m_closeToTray =
         s.value(QStringLiteral("ui/closeToTray"), false).toBool();
+    // 默认 true = 关窗到后台时仍提示"仍在后台运行", 与历史行为一致。
+    m_minimizeNotify =
+        s.value(QStringLiteral("ui/minimizeNotify"), true).toBool();
+}
+
+void Bridge::setMinimizeNotify(bool on)
+{
+    if (m_minimizeNotify == on)
+        return;
+    m_minimizeNotify = on;
+
+    QSettings s = paths::userSettings();
+    s.setValue(QStringLiteral("ui/minimizeNotify"), on);
+    s.sync();
+
+    log::userAction(on ? QStringLiteral("后台最小化提示 -> 开启")
+                       : QStringLiteral("后台最小化提示 -> 关闭"));
+    emit settingsChanged();
 }
 
 void Bridge::setCloseToTray(bool on)

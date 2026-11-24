@@ -182,6 +182,41 @@ Item {
             Rectangle { Layout.fillWidth: true; height: 1; color: Theme.border }
 
             // ══════════════════════════════════════════════════
+            //  关窗到后台时是否弹通知
+            // ══════════════════════════════════════════════════
+            RowLayout {
+                Layout.fillWidth: true
+
+                ColumnLayout {
+                    spacing: 1
+                    Layout.fillWidth: true
+                    Label {
+                        text: "关闭窗口后台运行时弹通知"
+                        color: Theme.textHi
+                        font.pixelSize: Theme.fsBody
+                        font.bold: true
+                    }
+                    Label {
+                        text: "仅在开启「退出按钮执行后台最小化」时生效。"
+                              + "开启：关闭窗口退到后台时发一条 Windows 系统通知；"
+                              + "关闭：静默退到后台，只看托盘图标。"
+                        color: Theme.textLo
+                        font.pixelSize: Theme.fsSmall
+                        wrapMode: Text.WordWrap
+                        Layout.fillWidth: true
+                    }
+                }
+
+                AppSwitch {
+                    id: minimizeNotifySwitch
+                    checked: Bridge.minimizeNotify
+                    onToggled: Bridge.minimizeNotify = checked
+                }
+            }
+
+            Rectangle { Layout.fillWidth: true; height: 1; color: Theme.border }
+
+            // ══════════════════════════════════════════════════
             //  刷新间隔
             // ══════════════════════════════════════════════════
             ColumnLayout {

@@ -107,9 +107,11 @@ ApplicationWindow {
         if (Bridge.closeToTray) {
             close.accepted = false        // 拦截本次关闭, 改为隐藏窗口
             win.hide()
-            Bridge.notifySystem("iCloud 监控仍在后台运行",
-                                "窗口已关闭, 程序继续在后台监控。"
-                                + "双击托盘图标可重新打开窗口, 右键托盘图标可彻底退出。")
+            // 设置页可关掉这条提示: 只想静默退到后台时不打扰。
+            if (Bridge.minimizeNotify)
+                Bridge.notifySystem("iCloud 监控仍在后台运行",
+                                    "窗口已关闭, 程序继续在后台监控。"
+                                    + "双击托盘图标可重新打开窗口, 右键托盘图标可彻底退出。")
         } else {
             close.accepted = true
             Qt.quit()

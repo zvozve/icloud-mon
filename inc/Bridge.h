@@ -8,6 +8,7 @@
 #define BRIDGE_H
 
 #include <QAbstractListModel>
+#include <QHash>
 #include <QJsonObject>
 #include <QObject>
 #include <QQmlEngine>
@@ -318,6 +319,10 @@ class Bridge : public QObject
     // false = 关闭即退出程序。由 Main.qml 的 onClosing 读取。
     Q_PROPERTY(bool    closeToTray READ closeToTray WRITE setCloseToTray
                          NOTIFY settingsChanged)
+    // 关闭窗口到后台时是否弹系统通知("iCloud 监控仍在后台运行")。
+    // 关掉后只剩托盘图标提示, 不打扰。默认 true 保持既有行为。
+    Q_PROPERTY(bool    minimizeNotify READ minimizeNotify WRITE setMinimizeNotify
+                         NOTIFY settingsChanged)
 
     // ── 异常 ──
     Q_PROPERTY(bool    anomalous READ anomalous NOTIFY anomalyChanged)
@@ -509,6 +514,7 @@ public:
     // 与下发 —— 不再从 IcloudMonitor 读。
     int     stallSec() const { return m_stallSec; }
     bool    closeToTray() const { return m_closeToTray; }
+    bool    minimizeNotify() const { return m_minimizeNotify; }
 
     bool    anomalous() const { return m_anomalous; }
     // 系统通知通道是否可用(见 Q_PROPERTY 段说明)
@@ -551,6 +557,7 @@ public:
     void setRefreshSec(int s);
     void setStallSec(int s);
     void setCloseToTray(bool on);
+    void setMinimizeNotify(bool on);
 
     // 日志路径(供设置页展示)
     QString logDir() const { return log::logDir(); }
@@ -632,6 +639,11 @@ private:
     QString m_anomalyTitle;
     QString m_anomalyDetail;
     QStringList m_anomalyList;
+    // 异常提醒去重: m_anomalyList 是"当前帧"展示数据, 每帧重算, 不能用来
+    // 判断"是否新出现"。这里保存上一帧的种类集合做边沿比较; 冷却表防止
+    // 重启 iCloud 时同一异常在相邻帧反复出现-消失而连弹。
+    QStringList         m_notifiedKinds;
+    QHash<QString, qint64> m_lastNotifyMs;
 
     int     m_refreshSec = 5;
     int     m_stallSec   = 300;   // 卡死阈值(秒), 需与 m_monitor 同步
@@ -640,6 +652,8 @@ private:
     // false = 关闭窗口即退出程序。
     // 默认 false —— 与历史行为一致(点关闭即退出), 不改变老用户习惯。
     bool    m_closeToTray = false;
+    // 关闭窗口到后台时弹不弹系统通知(持久化: ui/minimizeNotify, 默认 true)
+    bool    m_minimizeNotify = true;
 };
 
 }  // namespace icloud
